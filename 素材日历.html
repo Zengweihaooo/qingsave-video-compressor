@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>轻存 · 素材日历</title>
+<style>
+:root{--ink:#21362e;--muted:#7d897f;--bg:#f5f6f2;--card:#fff;--line:#e2e7de;--green:#285b42;--orig:#3f7a55;--cmp:#9cc39a;--unk:#b9b9b0;--bad:#c0563f;--soft:#f0f6ea;font-family:Inter,'Microsoft YaHei','PingFang SC',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg)}button,input,select{font:inherit}
+button{cursor:pointer;border:1px solid #dce3db;background:#fff;color:#304b3d;border-radius:9px;padding:8px 14px}button:hover{background:#eef4eb}button:disabled{opacity:.5;cursor:not-allowed}
+.primary{background:var(--green);color:#fff;border-color:var(--green)}.primary:hover{background:#347653}
+header{height:68px;border-bottom:1px solid #dfe5db;padding:0 4%;display:flex;align-items:center;justify-content:space-between;background:#fafbf8;gap:12px}
+.brand{display:flex;gap:12px;align-items:center;font-size:19px;font-weight:700}.logo{background:var(--green);color:#fff;border-radius:12px;padding:8px 12px}
+a{color:var(--green)}.muted{color:var(--muted);font-size:12px}
+main{max-width:1400px;margin:24px auto;padding:0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+input[type=text]{flex:1;min-width:220px;background:#fafbf8;border:1px solid #dfe5da;border-radius:8px;padding:9px}
+.meter{height:8px;background:#edf1e9;border-radius:8px;overflow:hidden;margin-top:10px}.meter span{display:block;height:100%;width:0;background:#709263;transition:width .3s}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.chip{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fafbf8}.chip b{display:block;font-size:20px;margin-top:4px}.chip.warn b{color:var(--bad)}
+.tabs{display:flex;gap:6px;margin:4px 0 16px;flex-wrap:wrap}.tabs button.active{background:var(--soft);border-color:#5e8050;box-shadow:inset 0 0 0 1px #5e8050}
+.years{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px}.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.months{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.month h3{margin:0 0 8px;font-size:14px}.month h3 span{font-weight:400;color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.dow{font-size:10px;color:var(--muted);text-align:center;padding-bottom:2px}
+.day{border:1px solid #eef0eb;border-radius:6px;min-height:44px;padding:3px 4px;background:#fbfcfa;cursor:default;position:relative}
+.day.has{background:#fff;border-color:#dbe5d6;cursor:pointer}.day.has:hover{border-color:#5e8050}.day.sel{box-shadow:inset 0 0 0 2px var(--green)}
+.day .n{font-size:10px;color:var(--muted)}.day.has .n{color:var(--ink);font-weight:600}
+.day .c{position:absolute;top:3px;right:4px;font-size:9px;color:var(--muted)}
+.day .bar{position:relative;height:7px;background:#eef1ea;border-radius:3px;margin-top:5px;overflow:hidden}
+.day .bar s{position:absolute;top:0;bottom:0;min-width:2px}
+.day .notime{height:3px;margin-top:2px;border-radius:2px;background:repeating-linear-gradient(90deg,var(--unk) 0 3px,transparent 3px 6px)}
+.day.conflict::after{content:'';position:absolute;bottom:3px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--bad)}
+.k-original{background:var(--orig)}.k-compressed{background:var(--cmp)}.k-unknown{background:var(--unk)}.k-proxy{background:#d6c79a}.k-bad{background:var(--bad)}
+.detail h2{margin:0 0 4px;font-size:17px}
+.axis{position:relative;height:18px;margin:14px 0 4px;border-bottom:1px solid var(--line)}.axis span{position:absolute;font-size:10px;color:var(--muted);transform:translateX(-50%)}
+.lanes{position:relative;background:repeating-linear-gradient(90deg,#f3f5f0 0 1px,transparent 1px calc(100%/24))}
+.lane{position:relative;height:22px;margin:3px 0}
+.seg{position:absolute;top:0;height:100%;border-radius:4px;min-width:3px;cursor:pointer;opacity:.92}.seg:hover{opacity:1;outline:2px solid var(--ink)}
+.seg.conflict{outline:2px solid var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid #eef0eb;vertical-align:top}th{color:var(--muted);font-weight:500}
+td.name{max-width:420px;overflow-wrap:anywhere}
+.badge{font-size:10px;padding:2px 7px;border-radius:10px;white-space:nowrap;display:inline-block}
+.b-original{background:#e2efe5;color:#2f6c4c}.b-compressed{background:#eef6e9;color:#5d8150}.b-unknown{background:#efefea;color:#777}.b-proxy{background:#f6f0dc;color:#8b7540}.b-bad{background:#f8e9e5;color:#9b4f40}.b-mark{background:#285b42;color:#fff}
+.flag{color:#9b6a40;font-size:11px;display:block;margin-top:2px}
+.issue{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}.issue h3{margin:0 0 6px;font-size:14px}.issue p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.6}
+.group{border-top:1px dashed #e3e7df;padding:8px 0}
+.list{max-height:420px;overflow:auto}
+.tree div{padding:5px 0;border-bottom:1px solid #f1f3ee;font-size:12px;display:flex;gap:8px;align-items:center}
+.tree .lv{font-size:10px;padding:1px 6px;border-radius:6px;background:#eef4e9;color:#5d7f4c;min-width:34px;text-align:center}
+.tree .none{background:#f8e9e5;color:#9b4f40}
+#msg{color:#a24938;font-size:12px;margin-top:8px;white-space:pre-wrap}
+.hidden{display:none!important}
+@media(max-width:700px){main{padding:0 14px}.months{grid-template-columns:1fr}header{padding:0 14px}}
+</style></head>
+<body>
+<header><div class="brand"><span class="logo">◈</span>轻存 <span class="muted">素材日历与整理</span></div><a class="live-only" href="/">← 返回压缩</a></header>
+<main>
+<div class="card live-only">
+  <div class="row"><input id="root" type="text" placeholder="选择要扫描的硬盘或文件夹，例如 H:\ 或 /Volumes/Data"><button id="browse">浏览</button><button class="primary" id="scan">扫描</button><button id="cancel" class="hidden">停止</button><button id="export" disabled>在硬盘根目录生成网页</button></div>
+  <div class="meter"><span id="bar"></span></div><div class="muted" id="status" style="margin-top:6px">按相对路径扫描整个文件夹。第一次需要读取每个视频的信息，之后有缓存会快很多。</div>
+  <div id="msg"></div>
+</div>
+<div class="card static-only hidden"><b>素材日历（快照）</b><p class="muted" id="snap" style="margin-top:6px"></p></div>
+<div class="card hidden" id="overview"><div class="chips" id="chips"></div></div>
+<div id="body" class="hidden">
+  <div class="tabs"><button data-tab="cal" class="active">日历</button><button data-tab="issues">问题清单</button><button data-tab="tree">文件夹结构</button></div>
+  <section id="tab-cal">
+    <div class="card"><div class="years" id="years"></div>
+      <div class="legend"><span><i class="k-original"></i>原片</span><span><i class="k-compressed"></i>压缩版</span><span><i class="k-unknown"></i>无法判断</span><span><i class="k-bad"></i>读不出</span><span><i style="background:repeating-linear-gradient(90deg,var(--unk) 0 3px,transparent 3px 6px)"></i>只知道日期、不知道几点</span><span><i style="background:var(--bad);border-radius:50%;width:8px"></i>当天有冲突</span></div>
+      <div class="months" id="months"></div></div>
+    <div class="card detail hidden" id="detail"></div>
+  </section>
+  <section id="tab-issues" class="hidden"><div class="card" id="issues"></div></section>
+  <section id="tab-tree" class="hidden"><div class="card"><p class="muted" style="margin:0 0 10px">识别出的年 / 月 / 日文件夹。「12.5 去海边」这类日期开头加描述的也会识别；红色是含视频但没识别出日期的文件夹。</p><div class="tree list" id="tree" style="max-height:none"></div></div></section>
+</div>
+</main>
+<script id="embedded" type="application/json"></script>
+<script>
+/*__MODE__*/
+const token='__TOKEN__';const $=id=>document.getElementById(id);
+let D=null,year=null,selected=null,conflictIds=new Set();
+const KIND={original:'原片',compressed:'压缩版',unknown:'无法判断',proxy:'LRF 低清'};
+async function api(path,data={}){let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':token},body:JSON.stringify(data)});let v=await r.json();if(!r.ok)throw Error(v.error||'操作失败');return v}
+function size(n){return n>=1e12?(n/1e12).toFixed(2)+' TB':n>=1e9?(n/1e9).toFixed(1)+' GB':(n/1e6).toFixed(0)+' MB'}
+function dur(s){s=Math.round(s||0);let h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`}
+function el(tag,attrs={},...kids){let e=document.createElement(tag);for(let[k,v]of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v)}for(let k of kids)if(k!=null)e.append(k);return e}
+function kindOf(f){return f.readable?f.kind:'bad'}
+function badge(f){return el('span',{class:'badge b-'+kindOf(f)},f.readable?KIND[f.kind]:'读不出')}
+function fileLink(f){let label=f.name;if(MODE==='static')return el('a',{href:f.rel.split('/').map(encodeURIComponent).join('/'),target:'_blank'},label);return el('a',{href:'#',onclick:e=>{e.preventDefault();api('/library/open',{rel:f.rel}).catch(showErr)}},label)}
+function showErr(e){$('msg').textContent=e.message||e}
+function startOf(f){return new Date(f.start)}
+function dayKey(f){return f.start.slice(0,10)}
+
+function render(){
+  let s=D.summary;$('overview').classList.remove('hidden');$('body').classList.remove('hidden');
+  let chips=[['视频总数',s.total,size(s.size)],['原片',s.original,'未标记 '+s.unmarked_original+' 个',s.unmarked_original],['压缩版',s.compressed],['无法判断',s.unknown],['读不出',s.unreadable,'',s.unreadable],['同一时间点',s.same_time,'(a) 时间轴冲突',s.same_time],['时间重叠',s.overlap,'(a) 时间轴冲突',s.overlap],['完全一样',s.duplicates,'(b) 重复文件',s.duplicates],['原片+压缩版并存',s.pairs,'(c) 可考虑删原片',0]];
+  $('chips').replaceChildren(...chips.map(([t,n,sub,warn])=>el('div',{class:'chip'+(warn?' warn':'')},el('span',{class:'muted'},t),el('b',{},String(n)),sub?el('span',{class:'muted'},sub):null)));
+  conflictIds=new Set([...D.issues.same_time.flatMap(g=>g.ids),...D.issues.overlap.flatMap(g=>g.ids),...D.issues.duplicates.flatMap(g=>g.ids)]);
+  if(!year||!D.years.includes(year))year=D.years[D.years.length-1];
+  renderYears();renderCalendar();renderIssues();renderTree();
+}
+function renderYears(){$('years').replaceChildren(...D.years.map(y=>el('button',{class:y===year?'primary':'',onclick:()=>{year=y;selected=null;renderYears();renderCalendar()}},y+' 年 · '+D.files.filter(f=>f.start.startsWith(y)).length)))}
+function renderCalendar(){
+  let byDay={};D.files.forEach(f=>{if(f.start.startsWith(year))(byDay[dayKey(f)]=byDay[dayKey(f)]||[]).push(f)});
+  let months=[];
+  for(let m=0;m<12;m++){
+    let first=new Date(+year,m,1),days=new Date(+year,m+1,0).getDate(),count=0,grid=el('div',{class:'grid'});
+    '一二三四五六日'.split('').forEach(d=>grid.append(el('div',{class:'dow'},d)));
+    for(let i=0;i<(first.getDay()+6)%7;i++)grid.append(el('div'));
+    for(let d=1;d<=days;d++){
+      let key=`${year}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,list=byDay[key]||[];count+=list.length;
+      let cell=el('div',{class:'day'+(list.length?' has':'')+(list.some(f=>conflictIds.has(f.id))?' conflict':'')+(selected===key?' sel':''),title:list.length?`${key} · ${list.length} 个视频`:key},el('div',{class:'n'},String(d)));
+      if(list.length){
+        cell.append(el('div',{class:'c'},String(list.length)));
+        let bar=el('div',{class:'bar'});
+        list.filter(f=>f.precise).forEach(f=>{let t=startOf(f),a=(t.getHours()*3600+t.getMinutes()*60+t.getSeconds())/864,w=Math.max((f.duration||60)/864,.4);bar.append(el('s',{class:'k-'+kindOf(f),style:`left:${a}%;width:${Math.min(w,100-a)}%`}))});
+        cell.append(bar);if(list.some(f=>!f.precise))cell.append(el('div',{class:'notime'}));
+        cell.onclick=()=>{selected=key;renderCalendar();renderDay(key,list)};
+      }
+      grid.append(cell);
+    }
+    if(count||true)months.push(el('div',{class:'month'},el('h3',{},`${m+1} 月 `,el('span',{},count?count+' 个视频':'无视频')),grid));
+  }
+  $('months').replaceChildren(...months);
+}
+function renderDay(key,list){
+  list=[...list].sort((a,b)=>a.start.localeCompare(b.start));
+  let box=$('detail');box.classList.remove('hidden');
+  let descs=[...new Set(list.map(f=>f.desc).filter(Boolean))];
+  let axis=el('div',{class:'axis'});for(let h=0;h<=24;h+=3)axis.append(el('span',{style:`left:${h/24*100}%`},h+':00'));
+  let lanes=[],laneBox=el('div',{class:'lanes'});
+  list.filter(f=>f.precise).forEach(f=>{let t=startOf(f),a=(t.getHours()*3600+t.getMinutes()*60+t.getSeconds())/864,w=Math.max((f.duration||60)/864,.25);let lane=lanes.findIndex(end=>end<=a);if(lane<0){lane=lanes.length;lanes.push(0)}lanes[lane]=a+w;
+    let row=laneBox.children[lane]||laneBox.appendChild(el('div',{class:'lane'}));
+    row.append(el('div',{class:'seg k-'+kindOf(f)+(conflictIds.has(f.id)?' conflict':''),style:`left:${a}%;width:${Math.min(w,100-a)}%`,title:`${f.start.slice(11,19)} · ${dur(f.duration)} · ${f.name}`,onclick:()=>document.getElementById('f'+f.id)?.scrollIntoView({block:'center'})}))});
+  let rows=list.map(f=>el('tr',{id:'f'+f.id},el('td',{},f.precise?f.start.slice(11,19):'时间未知',el('span',{class:'flag',style:'color:#9aa891'},f.basis)),el('td',{},dur(f.duration)),el('td',{},badge(f),f.marked?el('span',{class:'badge b-mark',style:'margin-left:4px'},'已标记'):null),el('td',{class:'name'},fileLink(f),el('span',{class:'muted',style:'display:block'},f.folder||'（根目录）'),...f.flags.map(x=>el('span',{class:'flag'},'⚠ '+x)),conflictIds.has(f.id)?el('span',{class:'flag',style:'color:var(--bad)'},'⚠ 有冲突，见问题清单'):null),el('td',{},size(f.size),el('span',{class:'muted',style:'display:block'},f.width?`${f.width}×${f.height} ${f.codec}`:''))));
+  box.replaceChildren(el('h2',{},key+' · '+list.length+' 个视频 · '+dur(list.reduce((a,f)=>a+(f.duration||0),0))),descs.length?el('p',{class:'muted'},'文件夹描述：'+descs.join(' / ')):null,axis,laneBox,el('table',{},el('thead',{},el('tr',{},...['开始','时长','类型','文件','大小'].map(t=>el('th',{},t)))),el('tbody',{},...rows)));
+  box.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function fileRow(f,extra){return el('div',{class:'row',style:'padding:3px 0'},extra||null,badge(f),el('span',{class:'muted',style:'min-width:130px'},f.precise?f.start.replace('T',' '):f.start.slice(0,10)+' 时间未知'),el('span',{class:'muted'},dur(f.duration)+' · '+size(f.size)),el('span',{style:'overflow-wrap:anywhere'},fileLink(f),el('span',{class:'muted'},'  '+(f.folder||'根目录'))))}
+function section(title,desc,body){return el('div',{class:'issue'},el('h3',{},title),el('p',{},desc),body)}
+function renderIssues(){
+  let F=D.files,I=D.issues,out=[];
+  let checks={};let unmarked=el('div',{class:'list'},...I.unmarked.map(id=>{let cb=el('input',{type:'checkbox'});cb.checked=true;checks[id]=cb;return fileRow(F[id],cb)}));
+  let tools=el('div',{class:'row',style:'margin-bottom:8px'});
+  if(MODE==='live'){tools.append(el('button',{onclick:()=>Object.values(checks).forEach(c=>c.checked=true)},'全选'),el('button',{onclick:()=>Object.values(checks).forEach(c=>c.checked=false)},'全不选'),el('button',{class:'primary',onclick:markSelected},'给选中的加上 _ORG 后缀'),el('button',{onclick:undoMark},'撤销上一次改名'))}
+  else tools.append(el('span',{class:'muted'},'改名需要在轻存里操作。'));
+  window._checks=checks;
+  out.push(section(`1. 未标记的原片（${I.unmarked.length}）`,'码率接近相机原片（例如 Action 3 原文件）、还没有任何标记的视频。改名只在文件名末尾加 _ORG（同名 LRF/THM/SCR 一起改），不压缩、不移动；每次改名都有记录，可以撤销。',el('div',{},tools,unmarked)));
+  out.push(section(`2a. 同一时间点（${I.same_time.length} 组）`,'拍摄开始时间精确到秒都一样，但不是同一段视频的原片/压缩版。可能是两台相机同时拍，或者文件被复制改过名。',el('div',{class:'list'},...I.same_time.map(g=>el('div',{class:'group'},el('b',{},g.start.replace('T',' ')),...g.ids.map(id=>fileRow(F[id])))))));
+  out.push(section(`2a. 时间重叠（${I.overlap.length} 组）`,'两段视频的拍摄时间段互相重叠超过 2 秒（相机自动分段首尾相接的不算）。',el('div',{class:'list'},...I.overlap.map(g=>el('div',{class:'group'},el('b',{},`重叠 ${dur(g.seconds)}`),...g.ids.map(id=>fileRow(F[id])))))));
+  out.push(section(`2b. 完全一样的文件（${I.duplicates.length} 组）`,'大小相同，并且开头、中间、结尾的内容一致（快速比对）。点「完整校验」会读完整个文件确认。只保留一份即可。',el('div',{class:'list'},...I.duplicates.map(g=>{let result=el('span',{class:'muted'});let btn=MODE==='live'?el('button',{onclick:async()=>{btn.disabled=true;result.textContent='校验中…';try{let v=await api('/library/verify',{rels:g.ids.map(id=>F[id].rel)});result.textContent=v.identical?'✓ 完整校验：内容完全一样':'✗ 内容不同（只是开头结尾相同）'}catch(e){result.textContent=e.message}btn.disabled=false}},'完整校验'):null;return el('div',{class:'group'},el('div',{class:'row'},el('b',{},size(g.size)),btn,result),...g.ids.map(id=>fileRow(F[id])))}))));
+  out.push(section(`2c. 原片和压缩版同时存在（${I.pairs.length} 组）`,'同一段录制既有原片又有压缩版（来自轻存压缩记录，或拍摄时间与时长一致）。确认压缩版没问题后，原片可以删除或另存。',el('div',{class:'list'},...I.pairs.map(p=>el('div',{class:'group'},el('span',{class:'muted'},'依据：'+p.by),fileRow(F[p.original]),fileRow(F[p.compressed]))))));
+  let odd=F.filter(f=>!f.readable||f.kind==='unknown'||f.flags.length);
+  out.push(section(`3. 需要留意的文件（${odd.length}）`,'读不出、无法判断原片还是压缩版、或日期只能推断的文件。',el('div',{class:'list'},...odd.map(f=>el('div',{class:'group'},fileRow(f),...f.flags.map(x=>el('span',{class:'flag'},'⚠ '+x)))))));
+  $('issues').replaceChildren(...out);
+}
+function renderTree(){
+  let LV={year:'年',month:'月',day:'日',md:'月.日',dayonly:'日'};
+  $('tree').replaceChildren(...D.tree.map(t=>el('div',{style:`padding-left:${t.depth*18}px`},el('span',{class:'lv'+(t.level?'':' none'),style:t.level||t.videos?'':'opacity:.4'},t.level?LV[t.level]:'—'),el('b',{style:'font-weight:500'},t.name),t.date?el('span',{class:'muted'},t.date):null,t.desc?el('span',{class:'muted'},'「'+t.desc+'」'):null,t.videos?el('span',{class:'badge b-original'},t.videos+' 个视频'):null)).filter((row,i)=>D.tree[i].level||D.tree[i].videos));
+}
+async function markSelected(){
+  let ids=Object.entries(window._checks).filter(([,c])=>c.checked).map(([id])=>+id);if(!ids.length)return;
+  if(!confirm(`将给 ${ids.length} 个原片的文件名末尾加上 _ORG（同名 LRF/THM/SCR 一起改）。之后可以点「撤销上一次改名」恢复。确定？`))return;
+  try{let v=await api('/library/mark',{root:D.root,rels:ids.map(id=>D.files[id].rel)});$('msg').textContent=`已改名 ${v.renamed.length} 个`+(v.skipped.length?`，跳过 ${v.skipped.length} 个：\n`+v.skipped.join('\n'):'')+'\n正在重新扫描…';startScan()}catch(e){showErr(e)}
+}
+async function undoMark(){if(!confirm('撤销上一次批量改名？'))return;try{let v=await api('/library/undo',{root:D.root});$('msg').textContent=`已恢复 ${v.restored.length} 个文件名`+(v.problems.length?`，${v.problems.length} 个无法恢复`:'')+'\n正在重新扫描…';startScan()}catch(e){showErr(e)}}
+async function startScan(){try{$('msg').textContent='';await api('/library/scan',{root:$('root').value.trim()});poll()}catch(e){showErr(e)}}
+async function poll(){try{let v=await api('/library/state');let p=v.progress||{};$('scan').disabled=v.running;$('cancel').classList.toggle('hidden',!v.running);
+  $('status').textContent=v.running?`${p.phase||''} ${p.total?p.done+' / '+p.total:''}`:v.error?'扫描失败：'+v.error:v.has_result?'扫描完成':'按相对路径扫描整个文件夹。';$('bar').style.width=(p.total?p.done/p.total*100:v.running?5:v.has_result?100:0)+'%';
+  if(v.running){setTimeout(poll,700);return}
+  if(v.has_result){let r=await api('/library/state',{result:true});D=r.result;$('root').value=D.root;$('export').disabled=false;render()}}catch(e){showErr(e)}}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b));['cal','issues','tree'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==b.dataset.tab))});
+if(MODE==='static'){
+  document.querySelectorAll('.live-only').forEach(e=>e.classList.add('hidden'));document.querySelectorAll('.static-only').forEach(e=>e.classList.remove('hidden'));
+  D=JSON.parse($('embedded').textContent);$('snap').textContent=`扫描于 ${D.scanned_at.replace('T',' ')}。放在硬盘根目录，点文件名可直接打开视频。要更新，在轻存「素材日历与整理」里重新扫描并生成网页。`;render();
+}else{
+  $('scan').onclick=startScan;$('cancel').onclick=()=>api('/library/cancel').catch(showErr);
+  $('browse').onclick=async()=>{try{let v=await api('/pick',{kind:'folder'});if(v.value)$('root').value=v.value}catch(e){showErr(e)}};
+  $('export').onclick=async()=>{try{let v=await api('/library/export');$('msg').textContent='已生成：'+v.path+'\n以后在这块硬盘上直接双击打开它即可查看（不需要轻存）。'}catch(e){showErr(e)}};
+  try{let saved=localStorage.getItem('qingsave-library-root');if(saved)$('root').value=saved}catch(e){}
+  $('root').onchange=()=>{try{localStorage.setItem('qingsave-library-root',$('root').value)}catch(e){}};
+  poll();
+}
+</script>
+</body></html>

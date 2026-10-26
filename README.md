@@ -6,10 +6,14 @@
 
 - 拖拽或选择视频，按天选择素材，双击日期批量加入。
 - 视频与音频独立档位，入队时保存参数；支持硬件编码与 CPU 编码。
+- 码率控制：NVIDIA 用 VBR + CQ 画质值（含预读与自适应量化），CPU 用 x265 CRF，均以档位码率的 1.5 倍为峰值上限；Apple VideoToolbox 与 Intel QSV 按目标码率。
 - 当前视频和整体队列进度，运行中添加任务、取消、重试和清除历史。
 - 按 `MM.DD` 归档，时间戳命名，默认 `CMP` 标记。
 - 成品校验及完成记录；支持验证后将原片送入回收站或永久删除。建议先用保留原片模式验证自己的素材。
 - 已拼接 360° MP4 的全景信息保留；OSV 可经 OpenOSV 拼接后压缩。
+- SD 卡导入（macOS）：自动检测可移除卡上的 MP4 / OSV，确认后复制到固态硬盘的 `MM.DD` 文件夹，优先 Data、空间不足自动换盘，命名 `时间_ORG_序号`。每个文件边复制边算 SHA-256，再绕过缓存从 SSD 读回比对、FFprobe 可读后才删除卡上原片；同名 LRF / THM / SCR 代理文件随之删除，无对应视频的保留。记录写入 `~/Library/Application Support/QingSave/sd-imports.jsonl`，中断后重新检测会识别已复制的文件。
+
+- 素材日历与整理（主界面右上角「素材日历与整理」，或 `/library`）：按相对路径扫描整块硬盘，识别年 / 月 / 日文件夹（含「12.5 第一次见 rebelo」这类带描述的），以日历显示每天几点有视频；找出未标记原片并可一键加 `_ORG` 后缀（可撤销），列出同一时间点 / 时间重叠、完全一样的文件、原片与压缩版并存；可在硬盘根目录生成离线网页 `轻存素材日历.html`，以后直接打开即可查看。
 
 ## 快速开始
 
@@ -58,3 +62,22 @@ OpenOSV 已用 25 fps 的 OSV 实片验证拼接、压缩、全景元数据、�
 
 `vendor/exporter.sikuli` 的脚本及界面模板源自 MIT 许可的 dji-osv2mp4，并做了超时、帧率与退出处理修改，许可见 `vendor/DJI-automation-LICENSE`。
 OpenOSV 使用 Apache-2.0 许可，许可见 `vendor/OpenOSV-LICENSE`，其运行时需单独下载。其他依赖遵循各自许可。本项目未给原创代码指定开源许可证。
+
+## 在新电脑上拉取与更新
+
+仓库是私有的：`git@github.com:Zengweihaooo/qingsave-video-compressor.git`。
+
+第一次（新电脑）：
+
+1. 安装 Git、Python 3.10+、FFmpeg。
+   - Windows：`winget install Git.Git Python.Python.3.12 Gyan.FFmpeg`（Python 安装时勾选 Add to PATH）。
+   - macOS：`xcode-select --install`，然后 `brew install python ffmpeg gh`。
+2. 配置身份：`git config --global user.name "你的名字"`，`git config --global user.email "你的 GitHub 邮箱"`。
+3. 登录 GitHub：`gh auth login`（选 GitHub.com → SSH → 生成新密钥 → 浏览器登录），或手动 `ssh-keygen -t ed25519` 后把公钥加到 GitHub → Settings → SSH keys。
+4. 拉代码：`git clone git@github.com:Zengweihaooo/qingsave-video-compressor.git`。
+5. 自测：进入目录后运行 `python tools/selftest.py`（Windows 先运行一次 `启动-Windows.cmd` 建好 `.venv`，再用 `.venv\Scripts\python.exe tools\selftest.py`），看到「全部通过」即可。
+6. 启动：Windows 双击 `启动-Windows.cmd`；macOS 运行 `bash tools/install-mac-app.sh` 生成 `~/Applications/轻存.app`。
+
+以后更新：在仓库目录运行 `git pull`，然后重新打开轻存。
+
+给接手的 Agent：先读 `AGENTS.md`。

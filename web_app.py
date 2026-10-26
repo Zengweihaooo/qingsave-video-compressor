@@ -17,6 +17,8 @@ import urllib.parse
 import uuid
 import compressor as c
 import osv_pipeline as osv
+import sd_import as sd
+import library
 
 TOKEN = secrets.token_urlsafe(32)
 BUILD = 'osv-preview-2'
@@ -36,6 +38,9 @@ origin_cache = {}
 
 SKIP_DIRS = {'$RECYCLE.BIN', 'System Volume Information', '.accelerate', 'Temp', '__pycache__', '.venv'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.osv'}
+LIBRARY_ROOTS = (Path('/Volumes/Data'), Path('/Volumes/Weihao'))
+# 10.12、10.12 第一次见 rebelo、10.13-瞎逛健身房 are the same day's folder.
+DATE_DIR_RE = re.compile(r'^(\d{1,2})\.(\d{1,2})(?!\d)(.*)$')
 
 def explicit_compressed(path):
     stem = Path(path).stem
@@ -68,7 +73,61 @@ def origin_profile(path):
     origin_cache[state_key] = result
     return result
 
-def media_date(path, root=None):
+def date_dir_parts(name):
+    match = DATE_DIR_RE.match(name)
+    if not match:
+        return None
+    month, day = int(match.group(1)), int(match.group(2))
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    return month, day, match.group(3)
+
+
+def library_roots(extra=None):
+    roots, seen = [], set()
+    for candidate in (extra, *LIBRARY_ROOTS):
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser()
+        if not path.is_dir():
+            continue
+        key = os.path.normcase(str(path.resolve()))
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(path)
+    return roots
+
+
+def find_storage_dir(month, day, roots):
+    """Prefer an existing date folder that already carries the day's description."""
+    token = f'{month:02d}.{day:02d}'
+    described, exact = [], []
+    for root in roots:
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir() or child.name.startswith('.') or child.name in SKIP_DIRS:
+                continue
+            parsed = date_dir_parts(child.name)
+            if not parsed or (parsed[0], parsed[1]) != (month, day):
+                continue
+            (exact if child.name == token else described).append(child)
+    pool = described or exact
+    if not pool:
+        return None
+
+    def rank(path):
+        parent = os.path.normcase(str(path.parent))
+        volume = 0 if parent == os.path.normcase('/Volumes/Data') else 1 if parent == os.path.normcase('/Volumes/Weihao') else 2
+        return volume, path.name
+
+    return sorted(pool, key=rank)[0]
+
+
+def media_date(path, root=None, year=None):
     path = Path(path)
     for pattern in (
         r'(?<!\d)(20\d{2})(\d{2})(\d{2})(?:\d{6})?(?!\d)',
@@ -93,6 +152,23 @@ def media_date(path, root=None):
             if day and int(day.group(1)) == int(month.group(2)):
                 try: return dt.date(int(month.group(1)), int(month.group(2)), int(day.group(2)))
                 except ValueError: pass
+    for part in reversed(parts):
+        parsed = date_dir_parts(part)
+        if not parsed:
+            continue
+        folder_year = int(year) if year else None
+        if folder_year is None:
+            for earlier in parts:
+                found = re.match(r'^(20\d{2})', earlier)
+                if found:
+                    folder_year = int(found.group(1))
+                    break
+        if folder_year is None:
+            continue
+        try:
+            return dt.date(folder_year, parsed[0], parsed[1])
+        except ValueError:
+            pass
     return None
 
 def scan_library(root, year=None):
@@ -126,7 +202,7 @@ def scan_library(root, year=None):
         normalized = os.path.normcase(str(path.resolve()))
         if normalized in known_outputs:
             skipped += 1; continue
-        date = media_date(path, root)
+        date = media_date(path, root, year)
         if year and (not date or date.year != int(year)): continue
         if not date: unknown += 1
         group = group_for(date)
@@ -156,14 +232,14 @@ def scan_library(root, year=None):
         source_key = os.path.normcase(str(source.resolve()))
         if source_key in seen_sources: continue
         output = Path(record['output'])
-        date = media_date(source, root) or media_date(output, root)
+        date = media_date(source, root, year) or media_date(output, root, year)
         if year and (not date or date.year != int(year)): continue
         group = group_for(date)
         group['count'] += 1; group['completed'] += 1
         group['size'] += int(record.get('source_state', {}).get('size', 0) or 0)
         seen_sources.add(source_key)
     ordered = sorted(groups.values(), key=lambda item: item['date'])
-    dated = [media_date(path, root) for path in videos]
+    dated = [media_date(path, root, year) for path in videos]
     years = sorted({date.year for date in dated if date}, reverse=True)
     return {'root': str(root), 'days': ordered, 'years': years,
             'candidate_count': sum(g['pending'] for g in ordered),
@@ -202,18 +278,30 @@ def sort_key(path):
     except ValueError: timestamp = scan_dates.get(path, '99999999_999999')
     return timestamp, os.path.normcase(path)
 
-def archive_folder(path):
+def archive_directory(path, output_root=None):
     timestamp = c.stamp(path) if str(path) not in scan_dates else scan_dates[str(path)]
-    return f'{timestamp[4:6]}.{timestamp[6:8]}'
+    month, day = int(timestamp[4:6]), int(timestamp[6:8])
+    existing = find_storage_dir(month, day, library_roots(output_root))
+    if existing:
+        return existing
+    base = Path(output_root).expanduser() if output_root else LIBRARY_ROOTS[0]
+    return base / f'{month:02d}.{day:02d}'
 
 def names(data):
     start, width = int(data['start']), int(data['width'])
     if start < 0 or not 1 <= width <= 10: raise ValueError('起始序号须非负，序号位数须为 1–10')
     paths = sorted(set(data['files']), key=sort_key)
-    return [{'source': p,
-             'name': c.output_name(p, data['suffix'], start+i, width) if p not in scan_dates else f'{scan_dates[p]}{("_" + data["suffix"]) if data["suffix"] else ""}_{start+i:0{width}d}.mp4',
-             'folder': archive_folder(p) if data.get('archive', True) else '',
-             'size': Path(p).stat().st_size} for i,p in enumerate(paths)]
+    items = []
+    for index, path in enumerate(paths):
+        directory = archive_directory(path, data.get('output') or None) if data.get('archive', True) else None
+        items.append({
+            'source': path,
+            'name': c.output_name(path, data['suffix'], start + index, width) if path not in scan_dates else f'{scan_dates[path]}{("_" + data["suffix"]) if data["suffix"] else ""}_{start + index:0{width}d}.mp4',
+            'folder': directory.name if directory else '',
+            'directory': str(directory) if directory else '',
+            'size': Path(path).stat().st_size,
+        })
+    return items
 
 def public_tasks():
     with task_condition:
@@ -300,22 +388,27 @@ def enqueue(data):
     deletion = data.get('delete_mode', 'keep')
     if deletion not in ('keep', 'trash', 'permanent'): raise ValueError('无效删除方式')
     if (same or deletion != 'keep') and any(i['source'] in dropped for i in items): raise ValueError('拖入文件请先关联原片文件夹，再使用原目录或删除功能')
-    if not same and not data.get('output', '').strip(): raise ValueError('请选择输出文件夹')
-    dest = Path(data.get('output') or '.').expanduser().resolve()
+    if not same and not data.get('output', '').strip() and not all(item.get('directory') for item in items):
+        raise ValueError('请选择输出文件夹')
+    dest = Path(data['output']).expanduser().resolve() if data.get('output', '').strip() else None
     jobs = []
     file_options = data.get('file_options') or {}
     export_options = osv.settings(data.get('osv') or {})
     for item in items:
         source = Path(item['source']).resolve()
-        base = source.parent if same else dest
-        target = base / item['folder'] / item['name'] if item['folder'] else base / item['name']
+        if item.get('directory'):
+            target = Path(item['directory']) / item['name']
+        else:
+            base = source.parent if same else dest
+            target = base / item['folder'] / item['name'] if item['folder'] else base / item['name']
         options = file_options.get(str(source), file_options.get(item['source'], {}))
         config = (options.get('video', data['video']), options.get('audio', data['audio']), data['engine'],
                   False if deletion == 'keep' else deletion, bool(data['pano']))
         if config[0] not in c.LEVELS or config[1] not in c.LEVELS or config[2] not in c.ENGINES: raise ValueError('无效的档位')
         jobs.append((source, target, config))
     if deletion == 'trash': __import__('send2trash')
-    if not same: dest.mkdir(parents=True, exist_ok=True)
+    if dest is not None and not same and any(not item.get('directory') for item in items):
+        dest.mkdir(parents=True, exist_ok=True)
     with task_condition:
         reserved = {os.path.normcase(item['output']) for item in tasks if item['status'] in ('pending', 'running')}
         if any(target.exists() or source == target or os.path.normcase(str(target)) in reserved for source, target, _ in jobs):
@@ -334,6 +427,34 @@ def enqueue(data):
         task_condition.notify_all()
     return added
 
+def library_route(path, data):
+    root = data.get('root') or library.job['root']
+    if path == '/library/scan':
+        if not root: raise ValueError('请先选择硬盘或文件夹')
+        library.start_scan(root); return {}
+    if path == '/library/state':
+        return library.state(bool(data.get('result')))
+    if path == '/library/cancel':
+        library.job['cancel'].set(); return {}
+    if not root: raise ValueError('请先扫描')
+    if path == '/library/mark':
+        return library.mark_originals(root, data.get('rels', []))
+    if path == '/library/undo':
+        return library.undo_last_mark(root)
+    if path == '/library/verify':
+        return library.verify_duplicate(root, data.get('rels', []))
+    if path == '/library/export':
+        result = library.job['result']
+        if not result: raise ValueError('请先扫描')
+        return {'path': library.export_page(result, (c.BASE/'素材日历.html').read_text(encoding='utf8'))}
+    if path == '/library/open':
+        target = (Path(root) / data.get('rel', '')).resolve()
+        if Path(root).resolve() not in target.parents or not target.is_file(): raise ValueError('文件不存在')
+        if sys.platform == 'win32': os.startfile(str(target))  # noqa: S606 - local file the user clicked
+        else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(target)])
+        return {}
+    raise ValueError('未知操作')
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def reply(self, obj, status=200):
@@ -343,6 +464,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}': self.send_error(403); return
         if self.path == '/health':
             self.reply({'build': BUILD, 'busy': state['busy'], 'openosv_installed': osv.tool().is_file()}); return
+        if self.path == '/library':
+            html=(c.BASE/'素材日历.html').read_text(encoding='utf8').replace('__TOKEN__',TOKEN).replace('/*__MODE__*/',"const MODE='live';").encode()
+            self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(html); return
         if self.path != '/': self.send_error(404); return
         html=(c.BASE/'界面.html').read_text(encoding='utf8').replace('__TOKEN__',TOKEN).encode()
         self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(html)
@@ -414,6 +538,17 @@ class Handler(BaseHTTPRequestHandler):
                         dispatcher_thread = threading.Thread(target=dispatch_loop, daemon=True); dispatcher_thread.start()
                     task_condition.notify_all()
                 self.reply({}); return
+            if self.path == '/sd/state': self.reply(sd.state(LIBRARY_ROOTS)); return
+            if self.path == '/sd/plan':
+                self.reply(sd.build_plan(LIBRARY_ROOTS, find_storage_dir, data.get('excluded', []))); return
+            if self.path == '/sd/start':
+                sd.start(data.get('plan_id', ''), bool(data.get('eject'))); self.reply({}); return
+            if self.path == '/sd/cancel': sd.cancel(); self.reply({}); return
+            if self.path == '/sd/remove-corrupt':
+                self.reply({'messages': sd.remove_corrupt(data.get('ids', []), bool(data.get('keep_ssd_copy')))}); return
+            if self.path == '/sd/eject': self.reply({'messages': sd.eject(data.get('mounts', []))}); return
+            if self.path.startswith('/library/'):
+                self.reply(library_route(self.path, data)); return
             if self.path == '/pick': self.reply({'value':picker(data['kind'])}); return
             if self.path == '/preview': self.reply({'items':names(data)}); return
             if self.path == '/scan':

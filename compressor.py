@@ -105,6 +105,8 @@ def run_progress(args, cancel, on_progress):
 def update_progress(owner, **values):
     if not hasattr(owner, 'progress'):
         return
+    if 'phase' in values:
+        values = {'bytes_done': 0, 'bytes_total': 0, **values}
     progress_lock = getattr(owner, 'progress_lock', None)
     if progress_lock:
         with progress_lock: owner.progress.update(values)
@@ -152,25 +154,58 @@ def output_name(path, suffix, number, width):
         raise ValueError('后缀含有不可用于文件名的字符')
     return f'{stamp(path)}{("_" + suffix) if suffix else ""}_{number:0{width}d}.mp4'
 
-def digest(path, cancel=None):
+def digest(path, cancel=None, on_progress=None):
     h = hashlib.sha256()
+    total = Path(path).stat().st_size
+    done = 0
+    last_report = time.monotonic()
+    if on_progress: on_progress(0, total)
     with open(path, 'rb') as f:
         while block := f.read(4 * 1024 * 1024):
             if cancel and cancel.is_set():
                 raise RuntimeError('已取消')
             h.update(block)
+            done += len(block)
+            now = time.monotonic()
+            if on_progress and now - last_report >= 0.5:
+                on_progress(done, total)
+                last_report = now
+    if cancel and cancel.is_set(): raise RuntimeError('已取消')
+    if on_progress: on_progress(done, total)
     return h.hexdigest()
 
-def encoding_args(engine, bitrate, tenbit=False):
-    args = ['-c:v', engine, '-b:v', str(bitrate), '-maxrate', str(int(bitrate * 1.5)), '-bufsize', str(bitrate * 3)]
+def digest_progress(owner, path, phase):
+    update_progress(owner, phase=phase, current_seconds=0)
+    return digest(path, owner.cancel, lambda done, total: update_progress(
+        owner, bytes_done=done, bytes_total=total))
+
+
+# Quality targets for engines with a real constant-quality VBR mode.  The bitrate
+# from LEVELS stays as the peak cap (1.5x / 3x buffer), so busy scenes cannot balloon.
+QUALITY = {"压缩较猛": {'libx265': 28, 'hevc_nvenc': 30},
+           "中等压缩": {'libx265': 25, 'hevc_nvenc': 27},
+           "压缩较轻": {'libx265': 22, 'hevc_nvenc': 24}}
+
+def encoding_args(engine, bitrate, tenbit=False, level=None, tuned=True):
+    quality = QUALITY.get(level, {}).get(engine)
+    cap = ['-maxrate', str(int(bitrate * 1.5)), '-bufsize', str(bitrate * 3)]
     if engine == 'hevc_nvenc':
-        args += ['-rc', 'vbr', '-preset', 'p5', '-multipass', 'qres']
-    elif engine == 'hevc_qsv':
-        args += ['-preset', 'medium']
-    elif engine == 'hevc_videotoolbox':
-        args += ['-allow_sw', '0']
+        if quality and tuned:
+            args = ['-c:v', engine, '-rc', 'vbr', '-cq', str(quality), '-b:v', '0'] + cap + [
+                '-preset', 'p5', '-multipass', 'qres', '-rc-lookahead', '32',
+                '-spatial-aq', '1', '-temporal-aq', '1', '-aq-strength', '8']
+        else:
+            args = ['-c:v', engine, '-b:v', str(bitrate)] + cap + ['-rc', 'vbr', '-preset', 'p5', '-multipass', 'qres']
+    elif engine == 'libx265' and quality:
+        args = ['-c:v', engine, '-crf', str(quality)] + cap + ['-preset', 'medium']
     else:
-        args += ['-preset', 'medium']
+        args = ['-c:v', engine, '-b:v', str(bitrate)] + cap
+        if engine == 'hevc_qsv':
+            args += ['-preset', 'medium']
+        elif engine == 'hevc_videotoolbox':
+            args += ['-allow_sw', '0']
+        else:
+            args += ['-preset', 'medium']
     pix = ('yuv420p10le' if engine == 'libx265' else 'p010le') if tenbit else 'yuv420p'
     return args + ['-pix_fmt', pix, '-tag:v', 'hvc1']
 
@@ -213,9 +248,11 @@ def save_record(path, record):
     os.replace(temp, path)
     hidden_file(path)
 
-def recycle(record, manifest, cancel, mode='trash', fast=False):
+def recycle(record, manifest, cancel, mode='trash', fast=False, owner=None):
     if mode not in ('trash', 'permanent'): raise ValueError('无效的删除方式')
     src, dst = Path(record['source']), Path(record['output'])
+    def checked_digest(path):
+        return digest_progress(owner, path, '删除前核对文件内容') if owner else digest(path, cancel)
     if record.get('deleted'):
         return '此前已移入回收站'
     if not record.get('verified') or not src.is_file() or not dst.is_file() or src.resolve() == dst.resolve():
@@ -223,21 +260,23 @@ def recycle(record, manifest, cancel, mode='trash', fast=False):
     if fast:
         if file_state(src) != record.get('source_state') or file_state(dst) != record.get('output_state'):
             raise ValueError('文件状态已发生变化，请使用“压缩后匹配删除”进行完整校验')
-    elif digest(src, cancel) != record['source_sha256'] or digest(dst, cancel) != record['output_sha256']:
+    elif checked_digest(src) != record['source_sha256'] or checked_digest(dst) != record['output_sha256']:
         raise ValueError('文件已发生变化，拒绝删除')
     if record.get('panorama') and not any('spherical' in str(s).lower() for s in video(probe(dst, cancel)).get('side_data_list', [])):
         raise ValueError('全景标记缺失，拒绝删除')
     if not fast:
+        if owner: update_progress(owner, phase='删除前完整播放检查', current_seconds=0)
         if record.get('osv_export'):
             from osv_pipeline import validate_panorama, SIZES
             validate_panorama(probe(src, cancel), dst, cancel, SIZES[record['osv_export']['resolution']])
         else:
-            validate(probe(src, cancel), dst, cancel)
+            validate(probe(src, cancel), dst, cancel,
+                     (lambda seconds: update_progress(owner, current_seconds=seconds)) if owner else None)
     if not record.get('video_copy') and dst.stat().st_size >= src.stat().st_size:
         raise ValueError('成品未变小，保留原片')
     if cancel.is_set():
         raise RuntimeError('已取消')
-    if not fast and (digest(src, cancel) != record['source_sha256'] or digest(dst, cancel) != record['output_sha256']):
+    if not fast and (checked_digest(src) != record['source_sha256'] or checked_digest(dst) != record['output_sha256']):
         raise ValueError('验证期间文件发生变化，拒绝删除')
     if mode == 'permanent':
         src.unlink()
@@ -406,16 +445,22 @@ class App(tk.Tk):
                 rate = max(350000, int(v['width'] * v['height'] * fps * LEVELS[vl][0]))
                 if v.get('bit_rate'): rate = min(rate, int(int(v['bit_rate']) * 0.9))
                 tenbit = '10' in v.get('pix_fmt', '') or '12' in v.get('pix_fmt', '')
-                original_hash = digest(src, self.cancel)
+                original_hash = digest_progress(self, src, '读取原片并校验内容')
                 used = None
                 for engine in ([] if copy_video else candidates(choice)):
-                    try:
-                        self.events.put(f'试编码：{engine}，目标视频码率 {rate/1e6:.2f} Mbps')
-                        run([executable('ffmpeg'), '-v', 'error', '-nostdin', '-i', str(src), '-t', '1', '-map', source_map, '-an'] + encoding_args(engine, rate, tenbit) + ['-f', 'null', '-'], self.cancel)
-                        used = engine; break
-                    except RuntimeError as e:
-                        if self.cancel.is_set(): raise
-                        self.events.put(f'{engine} 不可用：{e}')
+                    quality = QUALITY.get(vl, {}).get(engine)
+                    # Older NVIDIA drivers may reject lookahead/AQ; retry with plain VBR before moving on.
+                    for tuned in ((True, False) if engine == 'hevc_nvenc' and quality else (True,)):
+                        try:
+                            mode = (f'画质值 {quality}，峰值上限 {rate*1.5/1e6:.2f} Mbps' if quality and tuned
+                                    else f'目标视频码率 {rate/1e6:.2f} Mbps')
+                            self.events.put(f'试编码：{engine}，{mode}')
+                            run([executable('ffmpeg'), '-v', 'error', '-nostdin', '-i', str(src), '-t', '1', '-map', source_map, '-an'] + encoding_args(engine, rate, tenbit, vl, tuned) + ['-f', 'null', '-'], self.cancel)
+                            used = engine; used_tuned = tuned; break
+                        except RuntimeError as e:
+                            if self.cancel.is_set(): raise
+                            self.events.put(f'{engine} 不可用：{e}')
+                    if used: break
                 if copy_video: used = 'copy'
                 if not used: raise ValueError('没有可用的编码器')
                 color = []
@@ -423,7 +468,7 @@ class App(tk.Tk):
                     if v.get(key) and v[key] != 'unknown': color += [flag, v[key]]
                 self.events.put(f'正在压缩：{src.name}（{used}）；可点击停止')
                 update_progress(self, phase='正在压缩', current_seconds=0)
-                video_args = ['-c:v', 'copy'] if copy_video else encoding_args(used, rate, tenbit) + color + ['-fps_mode', 'passthrough']
+                video_args = ['-c:v', 'copy'] if copy_video else encoding_args(used, rate, tenbit, vl, used_tuned) + color + ['-fps_mode', 'passthrough']
                 audio_args = ['-c:a', 'copy'] if al == '保留原片质量' else ['-c:a', 'aac', '-b:a', str(LEVELS[al][1])+'k']
                 run_progress([executable('ffmpeg'), '-v', 'error', '-nostdin', '-n', '-noautorotate', '-i', str(src), '-map', source_map, '-map', '0:a?', '-map_metadata', '0', '-map_chapters', '0'] + video_args + audio_args + ([] if pano else ['-movflags', '+faststart']) + [str(temp)], self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds))
                 if pano:
@@ -433,7 +478,7 @@ class App(tk.Tk):
                 self.events.put('正在完整解码验证成品…')
                 update_progress(self, phase='完整播放检查', current_seconds=0)
                 validate(info, temp, self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds))
-                if digest(src, self.cancel) != original_hash: raise ValueError('压缩期间原片发生变化，未保存成品')
+                if digest_progress(self, src, '确认原片未发生变化') != original_hash: raise ValueError('压缩期间原片发生变化，未保存成品')
                 # Exclusive creation via hard link prevents overwriting a concurrent file.
                 try:
                     os.link(temp, dst)
@@ -448,7 +493,7 @@ class App(tk.Tk):
                         dst.unlink()
                         raise
                 temp.unlink()
-                record = {'version': 2, 'source': str(src), 'output': str(dst), 'source_sha256': original_hash, 'output_sha256': digest(dst, self.cancel), 'verified': True, 'deleted': False, 'engine': used, 'panorama': pano, 'video_copy': copy_video, 'source_state': file_state(src), 'output_state': file_state(dst)}
+                record = {'version': 2, 'source': str(src), 'output': str(dst), 'source_sha256': original_hash, 'output_sha256': digest_progress(self, dst, '校验并记录成品'), 'verified': True, 'deleted': False, 'engine': used, 'panorama': pano, 'video_copy': copy_video, 'source_state': file_state(src), 'output_state': file_state(dst)}
                 manifest = dst.with_suffix('.mp4.dji.json'); save_record(manifest, record)
                 source_marker = src.with_suffix(src.suffix + '.dji.json')
                 if source_marker != manifest:
@@ -459,7 +504,7 @@ class App(tk.Tk):
                 saving = 1 - dst.stat().st_size / src.stat().st_size
                 self.events.put(f'完成：{dst.name}；体积变化 {saving:+.1%}（正数为节省）')
                 if delete:
-                    self.events.put(recycle(record, manifest, self.cancel, 'permanent' if delete == 'permanent' else 'trash'))
+                    self.events.put(recycle(record, manifest, self.cancel, 'permanent' if delete == 'permanent' else 'trash', owner=self))
             except Exception as e: self.events.put(f'{src.name}：{e}')
             finally:
                 if temp.exists(): temp.unlink()
