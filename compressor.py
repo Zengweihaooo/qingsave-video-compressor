@@ -13,8 +13,11 @@ import threading
 import time
 import uuid
 from spherical import inject
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+try:  # the legacy desktop window only; the web app works without Tk (portable Windows Python has none)
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+except ImportError:
+    tk = None
 
 BASE = Path(__file__).resolve().parent
 LEVELS = {"压缩较猛": (0.045, 64), "中等压缩": (0.075, 128), "压缩较轻": (0.115, 192), "保留原片质量": (0, 0)}
@@ -288,7 +291,7 @@ def recycle(record, manifest, cancel, mode='trash', fast=False, owner=None):
     save_record(manifest, record)
     return '原片已彻底删除' if mode == 'permanent' else '原片已移入回收站'
 
-class App(tk.Tk):
+class App(tk.Tk if tk else object):
     def __init__(self):
         super().__init__()
         self.title('DJI 视频一键压缩')

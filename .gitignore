@@ -20,3 +20,4 @@ vendor/sikulix-home/
 .env
 .env.*
 *.partial.*
+dist/

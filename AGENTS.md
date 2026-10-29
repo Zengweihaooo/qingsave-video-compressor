@@ -7,7 +7,7 @@
 轻存（QingSave）是用户自己用的本地视频工具，处理 DJI Action / Osmo 360 运动相机素材。三大功能：
 
 1. **压缩**：H.265 批量压缩，按拍摄日期归档到 `MM.DD` 文件夹，命名 `YYYYMMDD_HHMMSS_CMP_001.mp4`，校验通过后才处理原片。
-2. **SD 卡导入（仅 macOS）**：插卡自动检测，复制到固态硬盘（优先 `/Volumes/Data`，满了换其他固定盘），命名 `YYYYMMDD_HHMMSS_ORG_001.mp4`，SHA-256 读回校验后才删卡上原片。
+2. **SD 卡导入（macOS 与 Windows）**：插卡自动检测（macOS 用 `diskutil`，Windows 按盘符类型：可移动=卡，固定且非系统盘=目标），严格逐个文件「复制 → 读回校验 → 删卡上原片」，复制到固态硬盘（优先 `/Volumes/Data`，满了换其他固定盘），命名 `YYYYMMDD_HHMMSS_ORG_001.mp4`，SHA-256 读回校验后才删卡上原片。
 3. **素材日历与整理**（`/library` 页面）：扫描整块硬盘，识别原片 / 压缩版、时间冲突、重复文件、原片+压缩版并存，给原片加 `_ORG` 后缀（可撤销），日历视图，以及在硬盘根目录生成离线网页 `轻存素材日历.html`。
 
 用户说中文，用语音输入，经常把「轻存」打成「清存 / 清纯」。回复用中文。
@@ -16,7 +16,7 @@
 
 - 依赖：Python 3.10+（带 tkinter）、FFmpeg 与 ffprobe 在 PATH 里（或放在 `bin/`）、`pip install -r requirements.txt`。
 - macOS：`bash 启动-macOS.command`；新电脑可 `bash tools/install-mac-app.sh` 生成 `~/Applications/轻存.app`。
-- Windows：双击 `启动-Windows.cmd`。
+- Windows：双击 `启动-Windows.cmd`（需自己装 Python），或用免安装包：在 Mac 上 `python tools/build-windows.py <下载目录> <输出.zip>` 打包便携 Python 3.13 + FFmpeg + Send2Trash，解压后双击 `启动轻存.cmd`，不需要管理员权限。便携 Python 没有 tkinter，所以 Windows 上的文件选择用 PowerShell 系统对话框，`compressor.py` 里 tkinter 是可选导入。
 - 手动：`python web_app.py --port 3912`，浏览器开 `http://127.0.0.1:3912/`，素材日历在 `/library`。
 - 用户这台 Mac 的 Dock 里的 `~/Applications/轻存.app` 是原生包装（Mach-O，读取 Info.plist 的 `QingSaveRoot` 指向本仓库），它启动 `web_app.py --no-browser --port 0`。改完 Python 后要退出并重新打开 app 才生效；**重启前先确认没有任务在跑**：`/health` 的 `busy` 为 false，且 `/sd/state` 的 `running` 为 false（POST 需要页面里的 token）。
 
@@ -48,7 +48,8 @@ python tools/selftest.py
 - **导入去重**：`~/Library/Application Support/QingSave/sd-imports.jsonl` 按「卡内相对路径 + 大小 + 修改时间」识别，不要再加卷 UUID（有的卡每次插入 UUID 都变，曾导致重复复制）。
 - **改名可撤销**：`library.mark_originals` 每次改名写 `<根目录>/.qingsave/rename-log.jsonl`，同时更新 `*.dji.json` 压缩记录里的 `source`，`undo_last_mark` 反向恢复。
 - **路径一律用相对根目录**：同一块盘在 Windows（`H:\`）和 macOS（`/Volumes/...`）上结果一致；`.dji.json` 里的绝对路径是压缩时那台机器的，只按文件名匹配。
-- **平台**：`sd_import.py` 在非 macOS 上必须能 import（`SUPPORTED=False`，界面隐藏 SD 面板）。不要在模块顶层用平台专属库。
+- **平台**：所有模块在 Windows 便携 Python（无 tkinter）下必须能 import。不要在模块顶层用平台专属库；Linux 上 SD 面板隐藏（`SUPPORTED=False`）。
+- **一个接一个**：用户要求移动和压缩都严格逐个文件处理（处理一个、校验一个、删一个），不要改回多张卡并行复制。
 - **码率**：Apple VideoToolbox 保持按目标码率（实测它的 `-q:v` 没有优势）；CPU 用 x265 CRF 28/25/22，NVIDIA 用 CQ 30/27/24 + lookahead + AQ，两者都以档位码率 1.5 倍为峰值上限；NVIDIA 参数被驱动拒绝时退回普通 VBR。
 
 ## 素材库识别规则（library.py）

@@ -27,13 +27,16 @@ WIDTH = 3
 FREE_MARGIN = 2 * 1024**3
 BLOCK = 8 * 1024 * 1024
 try:
-    import fcntl  # macOS / Linux only; the SD import itself is macOS-only (diskutil).
+    import fcntl  # macOS / Linux: bypass the page cache when reading back
     F_NOCACHE = getattr(fcntl, 'F_NOCACHE', 48)
 except ImportError:
     fcntl = None
-SUPPORTED = sys.platform == 'darwin'
+SUPPORTED = sys.platform in ('darwin', 'win32')
 CARD_SKIP_DIRS = {'LOST.DIR', 'LOST+FOUND', 'System Volume Information', '$RECYCLE.BIN'}
-LOG_PATH = Path.home() / 'Library' / 'Application Support' / 'QingSave' / 'sd-imports.jsonl'
+if sys.platform == 'win32':
+    LOG_PATH = Path(os.environ.get('APPDATA') or Path.home()) / 'QingSave' / 'sd-imports.jsonl'
+else:
+    LOG_PATH = Path.home() / 'Library' / 'Application Support' / 'QingSave' / 'sd-imports.jsonl'
 
 _info_cache = {}
 _plans = {}
@@ -73,11 +76,44 @@ def _no_cache(handle):
             pass
 
 
+def _windows_volumes():
+    """Drive letters as (cards, targets): removable drives are cards, fixed non-system drives are targets."""
+    import ctypes
+    kernel = ctypes.windll.kernel32
+    system = (os.environ.get('SystemDrive') or 'C:').upper()
+    cards, targets = [], []
+    mask = kernel.GetLogicalDrives()
+    for index in range(26):
+        if not mask & (1 << index):
+            continue
+        letter = f'{chr(65 + index)}:'
+        root = letter + '\\'
+        kind = kernel.GetDriveTypeW(root)
+        if kind not in (2, 3) or letter.upper() == system:  # 2 removable, 3 fixed
+            continue
+        label = ctypes.create_unicode_buffer(261)
+        serial = ctypes.c_uint32()
+        if not kernel.GetVolumeInformationW(root, label, 261, ctypes.byref(serial), None, None, None, 0):
+            continue  # card reader with no card inserted
+        try:
+            os.listdir(root)
+            free = free_bytes(root)
+        except OSError:
+            continue
+        entry = {'mount': root, 'name': label.value or letter, 'uuid': f'{serial.value:08X}', 'disk': letter,
+                 'free': free, 'total': shutil.disk_usage(root).total}
+        (cards if kind == 2 else targets).append(entry)
+    return cards, targets
+
+
 def list_volumes(library_roots):
     """Split mounted volumes into SD cards (removable) and SSD targets (fixed)."""
     cards, targets = [], []
     if not SUPPORTED:
         return cards, targets
+    if sys.platform == 'win32':
+        cards, targets = _windows_volumes()
+        return cards, _prioritise(targets, library_roots)
     try:
         mounts = sorted(Path('/Volumes').iterdir())
     except OSError:
@@ -98,9 +134,24 @@ def list_volumes(library_roots):
             cards.append(entry)
         elif not info.get('Internal'):
             targets.append(entry)
-    priority = [os.path.normcase(str(root)) for root in library_roots]
-    targets.sort(key=lambda t: (priority.index(os.path.normcase(t['mount'])) if os.path.normcase(t['mount']) in priority else len(priority), t['name']))
-    return cards, targets
+    return cards, _prioritise(targets, library_roots)
+
+
+def _prioritise(targets, library_roots):
+    # Match by volume name so "Data" wins both as /Volumes/Data and as a Windows drive labelled Data.
+    priority = [Path(root).name.lower() for root in library_roots]
+    return sorted(targets, key=lambda t: (priority.index(t['name'].lower()) if t['name'].lower() in priority else len(priority), t['name']))
+
+
+def _eject(mount, name):
+    if sys.platform == 'win32':
+        letter = mount.rstrip('\\')
+        script = f"(New-Object -ComObject Shell.Application).Namespace(17).ParseName('{letter}').InvokeVerb('Eject')"
+        result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True, text=True,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    else:
+        result = subprocess.run(['diskutil', 'eject', mount], capture_output=True, text=True)
+    return f'已推出 {name}' if result.returncode == 0 else f'推出 {name} 失败：{result.stderr.strip() or result.stdout.strip()}'
 
 
 def read_log():
@@ -215,7 +266,7 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
             number += 1
         used.add(number)
         name = f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}"
-        item.update(status='pending', target=target['mount'], folder=folder.name, name=name, dest=str(folder / name))
+        item.update(status='pending', target=target['mount'], target_name=target['name'], folder=folder.name, name=name, dest=str(folder / name))
     plan_id = uuid.uuid4().hex
     with _lock:
         _plans.clear(); _plans[plan_id] = items
@@ -226,7 +277,7 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
             usage[item['target']] = usage.get(item['target'], 0) + item['size']
     return {'plan_id': plan_id, 'cards': card_summary,
             'targets': [{**t, 'planned': usage.get(t['mount'], 0)} for t in targets],
-            'items': [{k: i.get(k) for k in ('source', 'card_name', 'size', 'timestamp', 'basis', 'status', 'target', 'folder', 'name', 'proxies')} for i in items],
+            'items': [{k: i.get(k) for k in ('source', 'card_name', 'size', 'timestamp', 'basis', 'status', 'target', 'target_name', 'folder', 'name', 'proxies')} for i in items],
             'count': len(planned), 'size': sum(i['size'] for i in planned),
             'proxy_count': sum(len(i['proxies']) for i in planned), 'orphans': orphans, 'no_space': problems}
 
@@ -374,7 +425,7 @@ def _run_card(card, items, cancel, totals):
         name = Path(item['source']).name
         try:
             proxies, damaged = _process(item, cancel, step)
-            target = f"{Path(item['target']).name}/{item['folder']}/{item['name']}"
+            target = f"{item.get('target_name') or Path(item['target']).name}/{item['folder']}/{item['name']}"
             if not damaged:
                 totals['moved'] += 1
                 log(f'✓ {name} → {target}' + (f'（另删 {proxies} 个代理文件）' if proxies else ''))
@@ -408,17 +459,17 @@ def start(plan_id, eject=False):
 
     def controller():
         totals = {'moved': 0, 'kept': 0, 'failed': 0}
-        log(f'开始移动 {len(items)} 个视频，来自 {len(by_card)} 张卡')
-        threads = [threading.Thread(target=_run_card, args=(card, group, cancel, totals), daemon=True) for card, group in by_card.items()]
-        for thread in threads: thread.start()
-        for thread in threads: thread.join()
+        log(f'开始移动 {len(items)} 个视频，来自 {len(by_card)} 张卡；逐个复制、校验、删除')
+        for card, group in by_card.items():  # strictly one file at a time, card after card
+            if cancel.is_set():
+                break
+            _run_card(card, group, cancel, totals)
         summary = f"完成：移动 {totals['moved']} 个" + (f"，{totals['kept']} 个视频损坏，等待你确认" if totals['kept'] else '') + (f"，失败 {totals['failed']} 个" if totals['failed'] else '')
         if cancel.is_set(): summary = '已停止。' + summary
         log(summary)
         if eject and not cancel.is_set() and not totals['failed'] and not totals['kept']:
-            for card in by_card:
-                result = subprocess.run(['diskutil', 'eject', card], capture_output=True, text=True)
-                log(f'已推出 {Path(card).name}' if result.returncode == 0 else f'推出 {Path(card).name} 失败：{result.stderr.strip() or result.stdout.strip()}')
+            for card, group in by_card.items():
+                log(_eject(card, group[0]['card_name']))
         with _lock:
             job['running'] = False; job['result'] = {**totals, 'summary': summary}
 
@@ -479,11 +530,10 @@ def remove_corrupt(ids, keep_ssd_copy=False):
 
 def eject(mounts):
     cards, _ = list_volumes(())
-    allowed = {card['mount'] for card in cards}
+    names = {card['mount']: card['name'] for card in cards}
     messages = []
     for mount in mounts:
-        if mount not in allowed:
+        if mount not in names:
             raise ValueError('只能推出检测到的 SD 卡')
-        result = subprocess.run(['diskutil', 'eject', mount], capture_output=True, text=True)
-        messages.append(f'已推出 {Path(mount).name}' if result.returncode == 0 else f'推出 {Path(mount).name} 失败：{result.stderr.strip() or result.stdout.strip()}')
+        messages.append(_eject(mount, names[mount]))
     return messages

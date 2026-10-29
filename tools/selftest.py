@@ -1,7 +1,7 @@
 """End-to-end self test.  Builds a fake footage drive and a fake SD card in a temp folder,
 then checks every library rule and the SD import flow.  Needs FFmpeg on PATH.
 
-    python tools/selftest.py            (Windows: .venv\\Scripts\\python.exe tools\\selftest.py)
+    python tools/selftest.py   (Windows 免安装版：runtime\\python\\python.exe app\\tools\\selftest.py)
 """
 import json
 import os
@@ -31,7 +31,7 @@ def make(root, rel, sec=4, compressed=False):
     else:
         args = ['-f', 'lavfi', '-i', f'testsrc2=size=320x240:rate=25,noise=alls=40:allf=t:all_seed={seed}',
                 '-t', str(sec), '-c:v', 'libx264', '-b:v', '3M']
-    subprocess.run([shutil.which('ffmpeg'), '-v', 'error', '-y', *args, '-f', 'mp4', str(path)], check=True)
+    subprocess.run([L.c.executable('ffmpeg'), '-v', 'error', '-y', *args, '-f', 'mp4', str(path)], check=True)
     return path
 
 
@@ -148,8 +148,8 @@ def test_sd(base):
 
 
 if __name__ == '__main__':
-    if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
-        sys.exit('需要先安装 FFmpeg 并加入 PATH')
+    if not L.c.executable('ffmpeg') or not L.c.executable('ffprobe'):
+        sys.exit('需要 FFmpeg：放进 bin/ 或加入 PATH')
     with tempfile.TemporaryDirectory(prefix='qingsave-selftest-') as folder:
         base = Path(folder)
         test_library(base)

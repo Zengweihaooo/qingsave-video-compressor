@@ -250,7 +250,31 @@ def scan_library(root, year=None):
             'unknown_source_count': sum(g['unknown_source'] for g in ordered),
             'skipped_count': skipped, 'unsupported_count': unsupported, 'unknown_count': unknown}
 
+WINDOWS_PICKER = r"""
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}
+if ($args[0] -eq 'folder') {
+  $d = New-Object System.Windows.Forms.FolderBrowserDialog
+  $d.ShowNewFolderButton = $true
+  if ($d.ShowDialog($owner) -eq 'OK') { ConvertTo-Json -Compress $d.SelectedPath } else { '""' }
+} else {
+  $d = New-Object System.Windows.Forms.OpenFileDialog
+  $d.Multiselect = $true
+  $d.Filter = if ($args[0] -eq 'records') { 'Records|*.dji.json' } else { 'Videos|*.mp4;*.mov;*.mkv;*.osv' }
+  if ($d.ShowDialog($owner) -eq 'OK') { ConvertTo-Json -Compress @($d.FileNames) } else { '[]' }
+}
+"""
+
 def picker(kind):
+    if sys.platform == 'win32':
+        # Portable Python ships without Tk, so use the native Windows dialogs.
+        if kind not in ('folder', 'files', 'records'): raise ValueError('未知选择类型')
+        script = WINDOWS_PICKER.replace('$args[0]', f"'{kind}'")
+        encoded = __import__('base64').b64encode(script.encode('utf-16-le')).decode()
+        out = subprocess.check_output(['powershell', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+                                      creationflags=subprocess.CREATE_NO_WINDOW)
+        return json.loads(out.decode('utf-8-sig').strip() or '""')
     code = '''import tkinter as t,json,sys
 from tkinter import filedialog as d
 r=t.Tk();r.withdraw();r.attributes('-topmost',True)

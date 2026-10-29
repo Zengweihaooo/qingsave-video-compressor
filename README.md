@@ -80,4 +80,6 @@ OpenOSV 使用 Apache-2.0 许可，许可见 `vendor/OpenOSV-LICENSE`，其运�
 
 以后更新：在仓库目录运行 `git pull`，然后重新打开轻存。
 
+不想装 Python 的 Windows 电脑：用免安装包（`tools/build-windows.py` 生成），解压后双击 `启动轻存.cmd`，不需要管理员权限。
+
 给接手的 Agent：先读 `AGENTS.md`。
