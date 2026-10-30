@@ -497,7 +497,7 @@ def mark_originals(root, rels):
     for current, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
         for name in files:
-            if name.lower().endswith('.dji.json'):
+            if name.lower().endswith('.dji.json') and not name.startswith('.'):
                 manifests.setdefault(None, []).append(Path(current) / name)
     sources = {}
     for manifest in manifests.get(None, []):
@@ -519,9 +519,15 @@ def mark_originals(root, rels):
             for sidecar in path.parent.iterdir():
                 if sidecar != path and sidecar.stem.lower() == path.stem.lower() and sidecar.suffix.lower() in SIDECAR_EXTENSIONS:
                     moves.append((sidecar, sidecar.with_name(marked_name(sidecar.name))))
+            for old, new in list(moves):  # keep macOS ._ metadata twins paired with their file (matters when renamed on Windows)
+                twin = old.with_name('._' + old.name)
+                if twin.is_file():
+                    moves.append((twin, new.with_name('._' + new.name)))
             if any(target.exists() for _, target in moves):
                 skipped.append(f'{rel}：目标文件名已存在'); continue
             for old, new in moves:
+                if old.name.startswith('._') and not old.exists():
+                    continue  # macOS already moved the metadata twin together with its file
                 os.rename(old, new)
                 log.write(json.dumps({'batch': batch, 'old': rel_of(root, old), 'new': rel_of(root, new),
                                       'at': dt.datetime.now().isoformat(timespec='seconds')}, ensure_ascii=False) + '\n')
@@ -555,7 +561,11 @@ def undo_last_mark(root):
     for entry in reversed([e for e in entries if e['batch'] == batch]):
         new, old = root / entry['new'], root / entry['old']
         if new.is_file() and not old.exists():
-            os.rename(new, old); restored.append(entry['old'])
+            os.rename(new, old)
+            if not new.name.startswith('._'):
+                restored.append(entry['old'])
+        elif new.name.startswith('._'):
+            pass  # metadata twin already moved back by macOS with its file
         else:
             problems.append(entry['new'])
     with log_path.open('a', encoding='utf8') as log:
@@ -564,7 +574,7 @@ def undo_last_mark(root):
     for current, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
         for name in files:
-            if not name.lower().endswith('.dji.json'):
+            if not name.lower().endswith('.dji.json') or name.startswith('.'):
                 continue
             manifest = Path(current) / name
             try:

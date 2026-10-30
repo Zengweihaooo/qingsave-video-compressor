@@ -366,7 +366,7 @@ class App(tk.Tk if tk else object):
         if self.busy: return
         p = filedialog.askdirectory()
         if p:
-            self.files = sorted(set(self.files + [str(f.resolve()) for f in Path(p).iterdir() if f.suffix.lower() in ('.mp4', '.mov', '.mkv')]))
+            self.files = sorted(set(self.files + [str(f.resolve()) for f in Path(p).iterdir() if f.suffix.lower() in ('.mp4', '.mov', '.mkv') and not f.name.startswith('.')]))
             self.preview()
 
     def remove(self):

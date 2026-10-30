@@ -217,6 +217,8 @@ def existing_numbers(folder):
     numbers = set()
     try:
         for name in os.listdir(folder):
+            if name.startswith('.'):
+                continue
             match = re.search(rf'_{TAG}_(\d+)\.[^.]+$', name, re.I)
             if match:
                 numbers.add(int(match.group(1)))

@@ -185,6 +185,7 @@ def scan_library(root, year=None):
     for current, dirs, files in os.walk(root):
         dirs[:] = [name for name in dirs if name not in SKIP_DIRS and not name.startswith('.')]
         for name in files:
+            if name.startswith('.'): continue  # macOS ._ metadata twins on exFAT/FAT drives, hidden temp files
             path = Path(current) / name
             lower = name.lower()
             if lower.endswith('.dji.json'): manifests.append(path)

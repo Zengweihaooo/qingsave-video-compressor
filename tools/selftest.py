@@ -64,6 +64,9 @@ def build_drive(root):
     unnamed = make(root, '杂项/未命名视频.mp4')
     set_mtime(unnamed, 2024, 5, 1, 12, 0, 0)
     (root / '杂项/CAM_20260201100000_0009_D.MP4').write_bytes(new_year.read_bytes()[:200000].replace(b'moov', b'xxxx'))
+    for twin_of in (school, new_year, root / '2024/2024.08/08.09 海边/CAM_20240809101500_0001_D.MP4'):
+        twin_of.with_name('._' + twin_of.name).write_bytes(b'\x00\x05\x16\x07' + b'\x00' * 4092)  # macOS AppleDouble
+    (root / '2026/2026.03/03.14-学校/._20260314_160000_CMP_001.mp4.dji.json').write_bytes(b'\x00\x05\x16\x07')
 
 
 def check(condition, label):
@@ -82,7 +85,11 @@ def test_library(base):
     r = L.scan(root)
     F, I = r['files'], r['issues']
     name = {f['id']: f['rel'].split('/')[-1] for f in F}
-    check(r['summary']['total'] == 17, '共 17 个视频')
+    check(r['summary']['total'] == 17, '共 17 个视频（Mac 的 ._ 文件不算）')
+    compress_scan = w.scan_library(root)
+    check(compress_scan['candidate_count'] + compress_scan['explicit_compressed_count'] + compress_scan['likely_compressed_count']
+          + compress_scan['completed_count'] <= 17 and not any('/._' in f or '\\._' in f for d in compress_scan['days'] for f in d['files']),
+          '压缩页的按日期扫描也不把 ._ 文件当视频')
     check(len(I['unmarked']) == 14, '14 个未标记原片')
     check([sorted(name[i] for i in g['ids']) for g in I['same_time']] == [['GH_20260314150000_B.MP4', 'VID_20260314_150000.mp4']], '(a) 同一时间点')
     check(len(I['overlap']) == 1 and I['overlap'][0]['seconds'] == 3.0, '(a) 时间重叠 3 秒')
@@ -100,11 +107,14 @@ def test_library(base):
     marked = L.mark_originals(root, [F[i]['rel'] for i in I['unmarked']])
     check(len(marked['renamed']) == 14 and not marked['skipped'], '14 个原片已加 _ORG')
     check((root / '2024/2024.08/08.09 海边/CAM_20240809101500_0001_D_ORG.LRF').exists(), '同名 LRF 一起改名')
+    check((root / '2024/2024.08/08.09 海边/._CAM_20240809101500_0001_D_ORG.MP4').exists()
+          and not (root / '2024/2024.08/08.09 海边/._CAM_20240809101500_0001_D.MP4').exists(), 'Mac 的 ._ 文件跟着改名')
     manifest = json.loads((root / '2026/2026.03/03.14-学校/20260314_160000_CMP_001.mp4.dji.json').read_text(encoding='utf8'))
     check(manifest['source'].endswith('CAM_20260314160000_0005_D_ORG.MP4'), '压缩记录指向新文件名')
     check(len(L.scan(root)['issues']['unmarked']) == 0, '重新扫描后没有未标记原片')
     undo = L.undo_last_mark(root)
-    check(len(undo['restored']) == 15 and not undo['problems'], '撤销恢复全部文件名')
+    check(len(undo['restored']) == 15 and not undo['problems'] and (root / '2024/2024.08/08.09 海边/._CAM_20240809101500_0001_D.MP4').exists(),
+          '撤销恢复全部文件名（含 ._ 文件）')
     check(len(L.scan(root)['issues']['unmarked']) == 14, '撤销后恢复为 14 个未标记')
 
     page = L.export_page(L.scan(root), (L.c.BASE / '素材日历.html').read_text(encoding='utf8'))
@@ -120,6 +130,7 @@ def test_sd(base):
     good = make(card_root, 'DCIM/A/CAM_20261021143025_0001_D.MP4', 3)
     (card_root / 'MISC').mkdir()
     (card_root / 'MISC/CAM_20261021143025_0001_D.LRF').write_text('x')
+    (card_root / 'DCIM/A/._CAM_20261021143025_0001_D.MP4').write_bytes(b'\x00\x05\x16\x07' + b'\x00' * 4092)
     broken = card_root / 'DCIM/A/CAM_20261021150000_0002_D.MP4'
     broken.write_bytes(good.read_bytes()[:100000].replace(b'moov', b'xxxx'))
     make(card_root, 'DCIM/A/CAM_20261021150000_0002_D.LRF', 3)
@@ -137,7 +148,7 @@ def test_sd(base):
         return plan
 
     plan = run('UUID-A')
-    check([i['name'] for i in plan['items']] == ['20261021_143025_ORG_005.mp4', '20261021_150000_ORG_006.mp4'], '沿用已有文件夹并接着编号')
+    check([i['name'] for i in plan['items']] == ['20261021_143025_ORG_005.mp4', '20261021_150000_ORG_006.mp4'], '沿用已有文件夹并接着编号（卡上 ._ 文件不导入）')
     check(not good.exists() and not (card_root / 'MISC/CAM_20261021143025_0001_D.LRF').exists(), '好视频移走、代理文件删除')
     check(broken.exists() and len(sd.job['corrupt']) == 1, '坏视频留在卡上等待确认')
     check((ssd / '10.21 骑车/20261021_150000_ORG_006_LRF.mp4').exists(), '坏视频的 LRF 已存到固态硬盘')
