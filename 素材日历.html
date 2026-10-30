@@ -52,7 +52,7 @@ td.name{max-width:420px;overflow-wrap:anywhere}
 @media(max-width:700px){main{padding:0 14px}.months{grid-template-columns:1fr}header{padding:0 14px}}
 </style></head>
 <body>
-<header><div class="brand"><span class="logo">◈</span>轻存 <span class="muted">素材日历与整理</span></div><a class="live-only" href="/">← 返回压缩</a></header>
+<header><div class="brand"><span class="logo">◈</span>轻存 <span class="muted">素材日历与整理</span></div><span class="row live-only"><a href="/">← 返回压缩</a><button id="quitApp" hidden style="border:1px solid #e6c9c0;background:#fff;color:#9b4f40;border-radius:9px;padding:7px 13px;cursor:pointer">退出轻存</button></span></header>
 <main>
 <div class="card live-only">
   <div class="row"><input id="root" type="text" placeholder="选择要扫描的硬盘或文件夹，例如 H:\ 或 /Volumes/Data"><button id="browse">浏览</button><button class="primary" id="scan">扫描</button><button id="cancel" class="hidden">停止</button><button id="export" disabled>在硬盘根目录生成网页</button></div>
@@ -180,5 +180,12 @@ if(MODE==='static'){
   $('root').onchange=()=>{try{localStorage.setItem('qingsave-library-root',$('root').value)}catch(e){}};
   poll();
 }
+</script>
+<script>
+(async()=>{try{let h=await (await fetch('/health')).json();let b=document.getElementById('quitApp');if(!h.can_quit)return;b.hidden=false;
+b.onclick=async()=>{let busy=(await (await fetch('/health')).json()).busy;
+if(!confirm(busy?'轻存还在处理视频。退出会停止当前这一个，未完成的复制或压缩会被清理，原片不受影响；已经完成的不受影响。确定退出？':'退出轻存？'))return;
+b.disabled=true;b.textContent='正在安全退出…';try{await fetch('/quit',{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':'__TOKEN__'},body:'{}'})}catch(e){}
+document.body.innerHTML='<div style="font-family:system-ui;max-width:520px;margin:120px auto;text-align:center;color:#21362e"><h2>轻存已退出</h2><p style="color:#7d897f">黑色窗口会自动关闭。可以关闭这个页面了；下次双击「启动轻存.cmd」再打开。</p></div>'}}catch(e){}})();
 </script>
 </body></html>

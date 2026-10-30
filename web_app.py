@@ -451,6 +451,26 @@ def enqueue(data):
         task_condition.notify_all()
     return added
 
+SERVER = {'httpd': None, 'quit_button': True}
+
+def shutdown():
+    """Stop every job safely (partial copies / encodes are removed, originals untouched), then exit."""
+    global queue_stopping
+    with task_condition:
+        queue_stopping = True
+        owner = current_owner
+        task_condition.notify_all()
+    if owner: c.cancel_work(owner.cancel)
+    sd.cancel(); library.job['cancel'].set(); worker.cancel.set()
+    for _ in range(100):  # up to 20 s for the running step to clean up
+        with task_condition:
+            idle = current_owner is None
+        if idle and not sd.job['running'] and not library.job['running']:
+            break
+        __import__('time').sleep(0.2)
+    print('轻存已退出。')
+    SERVER['httpd'].shutdown()
+
 def library_route(path, data):
     root = data.get('root') or library.job['root']
     if path == '/library/scan':
@@ -487,7 +507,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}': self.send_error(403); return
         if self.path == '/health':
-            self.reply({'build': BUILD, 'busy': state['busy'], 'openosv_installed': osv.tool().is_file()}); return
+            self.reply({'build': BUILD, 'busy': state['busy'] or sd.job['running'] or library.job['running'],
+                        'openosv_installed': osv.tool().is_file(), 'can_quit': SERVER['quit_button']}); return
         if self.path == '/library':
             html=(c.BASE/'素材日历.html').read_text(encoding='utf8').replace('__TOKEN__',TOKEN).replace('/*__MODE__*/',"const MODE='live';").encode()
             self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(html); return
@@ -520,6 +541,9 @@ class Handler(BaseHTTPRequestHandler):
                 while not worker.events.empty(): state['logs'].append(worker.events.get())
                 self.reply({'busy':state['busy'],'logs':state['logs'],'quick_delete_count':len(worker.manifests),
                             'progress':queue_progress() if tasks else {}, 'tasks':public_tasks()}); return
+            if self.path == '/quit':
+                threading.Thread(target=shutdown, daemon=True).start()
+                self.reply({}); return
             if self.path == '/stop':
                 global queue_stopping
                 with task_condition:
@@ -619,8 +643,10 @@ if __name__=='__main__':
     parser.add_argument('--no-browser', action='store_true')
     args = parser.parse_args()
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
+    SERVER.update(httpd=server, quit_button=not args.no_browser)  # the Mac app window has its own Quit
     url=f'http://127.0.0.1:{server.server_port}/'
-    print('视频压缩页面已启动：'+url+'\n运行期间请保留此窗口。按 Ctrl+C 退出。')
+    print('视频压缩页面已启动：'+url+'\n运行期间请保留此窗口。在页面右上角点「退出轻存」，或按 Ctrl+C 退出。')
     if not args.no_browser: webbrowser.open(url)
     try: server.serve_forever()
-    except KeyboardInterrupt: worker.cancel.set(); server.server_close()
+    except KeyboardInterrupt: worker.cancel.set()
+    server.server_close()
