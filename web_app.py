@@ -19,6 +19,8 @@ import compressor as c
 import osv_pipeline as osv
 import sd_import as sd
 import library
+import applog
+import time
 
 TOKEN = secrets.token_urlsafe(32)
 BUILD = 'osv-preview-2'
@@ -31,6 +33,11 @@ dispatcher_thread = None
 queue_paused = False
 queue_stopping = False
 current_owner = None
+exiting = False
+QUEUE_FILE = 'queue.json'
+PREFERRED_PORT = 39390  # fixed so a bookmark / the launcher always finds the running copy
+TEMP_PARTIAL_RE = re.compile(r'^\.[0-9a-f]{32}\.partial\.mp4$')
+hardware = {'status': 'idle', 'items': [], 'gpu': '', 'auto': ''}
 staging = tempfile.TemporaryDirectory(prefix='dji-drop-')
 dropped = set()
 scan_dates = {}
@@ -329,13 +336,15 @@ def names(data):
 
 def public_tasks():
     with task_condition:
-        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message')} for item in tasks]
+        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine')} for item in tasks]
 
 def clear_finished_history():
     """Start a clean UI round without touching media or on-disk manifests."""
     with task_condition:
         if state['busy'] or any(item['status'] in ('pending', 'running') for item in tasks):
             raise ValueError('仍有等待或处理中的任务，请等待完成或先停止全部任务')
+        if any(item['status'] == 'interrupted' for item in tasks):
+            raise ValueError('还有上次没做完的任务，请先选择「继续处理」或「放弃」')
         removed = len(tasks)
         tasks.clear()
         worker.manifests.clear()
@@ -366,8 +375,9 @@ def dispatch_loop():
             while queue_paused and not queue_stopping:
                 task_condition.wait()
             if queue_stopping:
-                for item in tasks:
-                    if item['status'] == 'pending': item['status'] = 'cancelled'; item['message'] = '已停止'
+                if not exiting:  # quitting keeps the queue so it can continue next time
+                    for item in tasks:
+                        if item['status'] == 'pending': item['status'] = 'cancelled'; item['message'] = '已停止'
                 state['busy'] = False; dispatcher_thread = None; queue_stopping = False
                 task_condition.notify_all(); return
             item = next((candidate for candidate in tasks if candidate['status'] == 'pending'), None)
@@ -378,7 +388,8 @@ def dispatch_loop():
             owner = types.SimpleNamespace(events=worker.events, cancel=threading.Event(), manifests=worker.manifests,
                                           progress={}, progress_lock=threading.Lock())
             current_owner = owner
-        failure = None
+        failure, started = None, time.time()
+        applog.write('压缩', f"开始：{item['source']} → {item['output']}")
         try:
             if Path(item['source']).suffix.lower() == '.osv':
                 osv.process(owner, Path(item['source']), Path(item['output']), item['config'], item['osv'])
@@ -388,13 +399,17 @@ def dispatch_loop():
             failure = str(error)
             owner.events.put(f"{Path(item['source']).name}：{failure}")
         manifest = Path(item['output']).with_suffix('.mp4.dji.json')
-        verified = False
+        verified, record = False, {}
         try:
             record = json.loads(manifest.read_text(encoding='utf8'))
             verified = record.get('verified') and record.get('source') == item['source']
         except (OSError, ValueError): pass
+        with owner.progress_lock:
+            item['engine'] = record.get('engine') or owner.progress.get('engine')
         with task_condition:
-            if owner.cancel.is_set():
+            if owner.cancel.is_set() and exiting:
+                item['status'] = 'interrupted'; item['message'] = '退出时中断，下次打开可继续'
+            elif owner.cancel.is_set():
                 item['status'] = 'cancelled'; item['message'] = '已取消，可重新加入'
             elif not failure and Path(item['output']).is_file() and verified:
                 item['status'] = 'completed'; item['message'] = '已完成并验证'
@@ -402,6 +417,119 @@ def dispatch_loop():
                 item['status'] = 'failed'; item['message'] = failure or '失败，请查看日志后重试'
             current_owner = None
             task_condition.notify_all()
+        applog.event('compress', source=item['source'], output=item['output'], status=item['status'], message=item['message'],
+                     engine=item.get('engine'), video=item['video'], audio=item['audio'], seconds=round(time.time() - started, 1),
+                     source_size=(record.get('source_state') or {}).get('size'), output_size=(record.get('output_state') or {}).get('size'))
+
+def snapshot_queue():
+    with task_condition:
+        return [{key: (list(item[key]) if key == 'config' else item.get(key))
+                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine')} for item in tasks]
+
+def queue_saver():
+    last = None
+    while True:
+        text = json.dumps(snapshot_queue(), ensure_ascii=False)
+        if text != last:
+            try:
+                applog.save_json(QUEUE_FILE, json.loads(text)); last = text
+            except OSError:
+                pass
+        time.sleep(1.5)
+
+def load_queue():
+    """Bring back the queue from the last run; anything unfinished waits for the user to continue."""
+    saved = applog.load_json(QUEUE_FILE, []) or []
+    with task_condition:
+        for item in saved:
+            if item.get('status') in ('pending', 'running', 'interrupted'):
+                item['status'] = 'interrupted'; item['message'] = '上次没做完，等待继续'
+            item['config'] = tuple(item.get('config') or ())
+            tasks.append(item)
+    return sum(item['status'] == 'interrupted' for item in tasks)
+
+def continue_queue():
+    global dispatcher_thread, queue_stopping
+    resumed = 0
+    with task_condition:
+        for item in tasks:
+            if item['status'] != 'interrupted':
+                continue
+            source, output = Path(item['source']), Path(item['output'])
+            try:
+                record = json.loads(output.with_suffix('.mp4.dji.json').read_text(encoding='utf8'))
+            except (OSError, ValueError):
+                record = {}
+            if output.is_file() and record.get('verified'):
+                item['status'] = 'completed'; item['message'] = '上次已完成并验证'; continue
+            if output.exists():
+                item['status'] = 'failed'; item['message'] = '目标文件已存在但没有校验记录，请检查后手动处理'; continue
+            if not source.is_file():
+                item['status'] = 'failed'; item['message'] = '原片不在了（硬盘没插或已被移动）'; continue
+            try:  # an encode cut off mid-way leaves a hidden temp file next to the output
+                for leftover in output.parent.iterdir():
+                    if TEMP_PARTIAL_RE.match(leftover.name):
+                        leftover.unlink()
+            except OSError:
+                pass
+            item['status'] = 'pending'; item['message'] = '继续处理（这一个从头压缩）'; resumed += 1
+        if resumed:
+            queue_stopping = False; state['busy'] = True
+            if dispatcher_thread is None or not dispatcher_thread.is_alive():
+                dispatcher_thread = threading.Thread(target=dispatch_loop, daemon=True); dispatcher_thread.start()
+        task_condition.notify_all()
+    applog.write('压缩', f'继续上次没做完的任务：{resumed} 个')
+    return resumed
+
+def discard_interrupted():
+    with task_condition:
+        before = len(tasks)
+        tasks[:] = [item for item in tasks if item['status'] != 'interrupted']
+        task_condition.notify_all()
+        return before - len(tasks)
+
+def drain_events():
+    """Move compressor messages to the page log and to the log file, even with no browser open."""
+    while True:
+        message = worker.events.get()
+        with lock:
+            state['logs'].append(message); del state['logs'][:-500]
+        applog.write('压缩', message)
+
+def probe_hardware():
+    hardware.update(status='checking', items=[])
+    items = []
+    if sys.platform == 'win32':
+        smi = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32' / 'nvidia-smi.exe'
+        try:
+            out = subprocess.run([str(smi) if smi.exists() else 'nvidia-smi', '--query-gpu=name,driver_version', '--format=csv,noheader'],
+                                 capture_output=True, text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+            hardware['gpu'] = '；'.join(f"{line.split(',')[0].strip()}（驱动 {line.split(',')[-1].strip()}）" for line in out.splitlines() if line.strip())
+        except (OSError, subprocess.SubprocessError):
+            hardware['gpu'] = ''
+    elif sys.platform == 'darwin':
+        try:
+            hardware['gpu'] = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    ffmpeg = c.executable('ffmpeg')
+    for engine in dict.fromkeys(c.candidates('自动选择') + ['libx265']):
+        name, kind = c.ENGINE_INFO[engine]
+        entry = {'engine': engine, 'name': name, 'kind': kind, 'ok': False, 'note': '' if ffmpeg else '没有找到 FFmpeg'}
+        for tuned in ((True, False) if engine == 'hevc_nvenc' else (True,)):
+            if not ffmpeg:
+                break
+            try:
+                c.run([ffmpeg, '-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-t', '0.5']
+                      + c.encoding_args(engine, 4_000_000, True, '中等压缩', tuned) + ['-f', 'null', '-'])
+                entry.update(ok=True, note='' if tuned or engine != 'hevc_nvenc' else '只能用基础参数（建议更新显卡驱动）')
+                break
+            except Exception as error:
+                entry['note'] = c.short_error(error)
+        items.append(entry)
+        applog.write('设备检测', f"{name}：{'可用' if entry['ok'] else '不可用'} {entry['note']}")
+    auto = next((item for item in items if item['ok']), None)
+    hardware.update(status='done', items=items, auto=f"{auto['name']}（{auto['kind']}）" if auto else '没有可用的编码器')
 
 def enqueue(data):
     global dispatcher_thread, queue_stopping
@@ -452,10 +580,13 @@ def enqueue(data):
     return added
 
 SERVER = {'httpd': None, 'quit_button': True}
+DRAINER = {'on': False}
 
 def shutdown():
-    """Stop every job safely (partial copies / encodes are removed, originals untouched), then exit."""
-    global queue_stopping
+    """Stop the running step safely (originals untouched), keep the rest of the queue for next time, then exit."""
+    global queue_stopping, exiting
+    exiting = True
+    applog.write('轻存', '正在退出')
     with task_condition:
         queue_stopping = True
         owner = current_owner
@@ -468,7 +599,9 @@ def shutdown():
         if idle and not sd.job['running'] and not library.job['running']:
             break
         __import__('time').sleep(0.2)
+    applog.save_json(QUEUE_FILE, snapshot_queue())
     print('轻存已退出。')
+    applog.write('轻存', '已退出')
     SERVER['httpd'].shutdown()
 
 def library_route(path, data):
@@ -538,9 +671,20 @@ class Handler(BaseHTTPRequestHandler):
             if length>1000000: raise ValueError('请求过大')
             data=json.loads(self.rfile.read(length) or '{}')
             if self.path == '/state':
-                while not worker.events.empty(): state['logs'].append(worker.events.get())
+                while not worker.events.empty() and not DRAINER['on']: state['logs'].append(worker.events.get())
                 self.reply({'busy':state['busy'],'logs':state['logs'],'quick_delete_count':len(worker.manifests),
                             'progress':queue_progress() if tasks else {}, 'tasks':public_tasks()}); return
+            if self.path == '/hardware':
+                if data.get('recheck') and hardware['status'] != 'checking':
+                    threading.Thread(target=probe_hardware, daemon=True).start(); time.sleep(0.05)
+                self.reply(dict(hardware)); return
+            if self.path == '/queue/continue': self.reply({'resumed': continue_queue()}); return
+            if self.path == '/queue/discard': self.reply({'removed': discard_interrupted()}); return
+            if self.path == '/open-logs':
+                applog.LOG_DIR.mkdir(parents=True, exist_ok=True)
+                if sys.platform == 'win32': os.startfile(str(applog.LOG_DIR))  # noqa: S606
+                else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(applog.LOG_DIR)])
+                self.reply({'path': str(applog.LOG_DIR)}); return
             if self.path == '/quit':
                 threading.Thread(target=shutdown, daemon=True).start()
                 self.reply({}); return
@@ -639,14 +783,32 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=0)
-    parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--port', type=int, default=None)
+    parser.add_argument('--no-browser', action='store_true')  # inside the Mac app window
+    parser.add_argument('--no-open', action='store_true')  # started by launch.py, which opens the page itself
     args = parser.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
+    if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw): keep output in the log folder
+        applog.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(applog.LOG_DIR / 'console.log', 'a', encoding='utf8', buffering=1)
+    sys.excepthook = lambda kind, value, tb: applog.write('错误', ''.join(__import__('traceback').format_exception(kind, value, tb)))
+    try:
+        server=ThreadingHTTPServer(('127.0.0.1', PREFERRED_PORT if args.port is None else args.port),Handler)
+    except OSError:
+        server=ThreadingHTTPServer(('127.0.0.1', 0),Handler)
     SERVER.update(httpd=server, quit_button=not args.no_browser)  # the Mac app window has its own Quit
     url=f'http://127.0.0.1:{server.server_port}/'
+    applog.save_json('instance.json', {'port': server.server_port, 'pid': os.getpid(), 'token': TOKEN,
+                                       'started': dt.datetime.now().isoformat(timespec='seconds')})
+    interrupted = load_queue()
+    DRAINER['on'] = True
+    for target in (drain_events, queue_saver, probe_hardware):
+        threading.Thread(target=target, daemon=True).start()
+    applog.write('轻存', f'已启动 {url}' + (f'，上次有 {interrupted} 个任务没做完' if interrupted else ''))
     print('视频压缩页面已启动：'+url+'\n运行期间请保留此窗口。在页面右上角点「退出轻存」，或按 Ctrl+C 退出。')
-    if not args.no_browser: webbrowser.open(url)
+    if not args.no_browser and not args.no_open: webbrowser.open(url)
     try: server.serve_forever()
     except KeyboardInterrupt: worker.cancel.set()
     server.server_close()
+    if (applog.load_json('instance.json') or {}).get('pid') == os.getpid():
+        try: (applog.DATA_DIR / 'instance.json').unlink()
+        except OSError: pass

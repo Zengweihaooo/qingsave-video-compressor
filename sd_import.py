@@ -18,6 +18,7 @@ import threading
 import uuid
 from pathlib import Path
 
+import applog
 import compressor as c
 
 MAIN_EXTENSIONS = {'.mp4', '.osv'}
@@ -26,6 +27,7 @@ TAG = 'ORG'
 WIDTH = 3
 FREE_MARGIN = 2 * 1024**3
 BLOCK = 8 * 1024 * 1024
+CHUNK = 64 * 1024 * 1024  # resumable copies are checked chunk by chunk
 try:
     import fcntl  # macOS / Linux: bypass the page cache when reading back
     F_NOCACHE = getattr(fcntl, 'F_NOCACHE', 48)
@@ -33,10 +35,7 @@ except ImportError:
     fcntl = None
 SUPPORTED = sys.platform in ('darwin', 'win32')
 CARD_SKIP_DIRS = {'LOST.DIR', 'LOST+FOUND', 'System Volume Information', '$RECYCLE.BIN'}
-if sys.platform == 'win32':
-    LOG_PATH = Path(os.environ.get('APPDATA') or Path.home()) / 'QingSave' / 'sd-imports.jsonl'
-else:
-    LOG_PATH = Path.home() / 'Library' / 'Application Support' / 'QingSave' / 'sd-imports.jsonl'
+LOG_PATH = applog.DATA_DIR / 'sd-imports.jsonl'
 
 _info_cache = {}
 _plans = {}
@@ -48,6 +47,7 @@ def log(message):
     with _lock:
         job['logs'].append(f'{dt.datetime.now():%H:%M:%S}  {message}')
         del job['logs'][:-300]
+    applog.write('SD 导入', message)
 
 
 def volume_info(mount):
@@ -250,7 +250,12 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
                         target=str(Path(previous['dest']).parents[1]), folder=Path(previous['dest']).parent.name,
                         name=Path(previous['dest']).name)
             continue
-        target = next((t for t in targets if remaining[t['mount']] >= item['size']), None)
+        resumable = {t['mount']: _partial_paths(t['mount'], item)[0] for t in targets}
+        resumable = {mount: part.stat().st_size for mount, part in resumable.items() if part.is_file()}
+        # Continue an interrupted copy on the drive that already holds its first part.
+        target = next((t for t in sorted(targets, key=lambda t: t['mount'] not in resumable)
+                       if remaining[t['mount']] + resumable.get(t['mount'], 0) >= item['size']), None)
+        item['resume_bytes'] = resumable.get(target['mount'], 0) if target else 0
         if not target:
             item['status'] = 'no_space'; problems.append(Path(item['source']).name); continue
         remaining[target['mount']] -= item['size']
@@ -277,7 +282,7 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
             usage[item['target']] = usage.get(item['target'], 0) + item['size']
     return {'plan_id': plan_id, 'cards': card_summary,
             'targets': [{**t, 'planned': usage.get(t['mount'], 0)} for t in targets],
-            'items': [{k: i.get(k) for k in ('source', 'card_name', 'size', 'timestamp', 'basis', 'status', 'target', 'target_name', 'folder', 'name', 'proxies')} for i in items],
+            'items': [{k: i.get(k) for k in ('source', 'card_name', 'size', 'timestamp', 'basis', 'status', 'target', 'target_name', 'folder', 'name', 'proxies', 'resume_bytes')} for i in items],
             'count': len(planned), 'size': sum(i['size'] for i in planned),
             'proxy_count': sum(len(i['proxies']) for i in planned), 'orphans': orphans, 'no_space': problems}
 
@@ -311,6 +316,65 @@ def _copy_hashed(source, partial, cancel, on_bytes):
             digest.update(block); writer.write(block); on_bytes(len(block))
         writer.flush(); os.fsync(writer.fileno())
     return digest.hexdigest()
+
+
+def _partial_paths(target_root, item):
+    key = hashlib.sha256(f"{item['relative']}|{item['size']}|{item['mtime_ns']}".encode()).hexdigest()[:24]
+    folder = Path(target_root) / '.qingsave' / 'partials'
+    return folder / f'{key}.part', folder / f'{key}.json'
+
+
+def _copy_resumable(item, part, meta_path, cancel, step):
+    """Copy in 64 MB chunks, hashing each chunk as it comes off the card and saving the list of chunk
+    hashes after every chunk, so an interrupted copy (quit, logout, card pulled) continues later."""
+    source = Path(item['source'])
+    chunks = []
+    try:
+        meta = json.loads(meta_path.read_text(encoding='utf8'))
+    except (OSError, ValueError):
+        meta = {}
+    same = meta.get('relative') == item['relative'] and meta.get('size') == item['size'] and meta.get('mtime_ns') == item['mtime_ns']
+    if part.is_file() and same:
+        with open(part, 'rb') as handle:  # keep only the chunks that read back intact
+            _no_cache(handle)
+            for expected in meta.get('chunks', []):
+                block = handle.read(CHUNK)
+                if len(block) != min(CHUNK, item['size'] - len(chunks) * CHUNK) or hashlib.sha256(block).hexdigest() != expected:
+                    break
+                chunks.append(expected); step(len(block))
+        os.truncate(part, len(chunks) * CHUNK)
+        if chunks:
+            log(f'↻ {source.name} 接着上次复制，已有 {len(chunks) * CHUNK / 1e9:.1f} GB 校验无误')
+    else:
+        part.unlink(missing_ok=True)
+    with open(source, 'rb') as reader, open(part, 'ab' if chunks else 'wb') as writer:
+        _no_cache(reader); _no_cache(writer)
+        reader.seek(len(chunks) * CHUNK)
+        while block := reader.read(CHUNK):
+            if cancel.is_set(): raise RuntimeError('已取消')
+            writer.write(block); writer.flush(); os.fsync(writer.fileno())
+            chunks.append(hashlib.sha256(block).hexdigest()); step(len(block))
+            temp = meta_path.with_suffix('.tmp')
+            temp.write_text(json.dumps({'relative': item['relative'], 'size': item['size'], 'mtime_ns': item['mtime_ns'],
+                                        'source': item['source'], 'chunks': chunks}), encoding='utf8')
+            os.replace(temp, meta_path)
+    return chunks
+
+
+def _verify_chunks(part, chunks, cancel, step):
+    """Read the copy back past the cache; returns its SHA-256 only if every chunk matches the card."""
+    whole = hashlib.sha256()
+    with open(part, 'rb') as handle:
+        _no_cache(handle)
+        for expected in chunks:
+            if cancel.is_set(): raise RuntimeError('已取消')
+            block = handle.read(CHUNK)
+            if hashlib.sha256(block).hexdigest() != expected:
+                return None
+            whole.update(block); step(len(block))
+        if handle.read(1):
+            return None
+    return whole.hexdigest()
 
 
 def _problem(path):
@@ -377,19 +441,24 @@ def _process(item, cancel, step):
             raise ValueError('上次的复制件与卡上原片不一致，已保留两边文件')
         return _finish(item, dest, cancel, step)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    partial = dest.parent / f'.{dest.name}.qingsave-partial'
+    part, meta = _partial_paths(item['target'], item)
+    part.parent.mkdir(parents=True, exist_ok=True)
+    c.hidden_file(part.parents[1])
     try:
-        _progress(item['card'], phase='复制并计算校验值', file=source.name)
-        source_hash = _copy_hashed(source, partial, cancel, step)
+        _progress(item['card'], phase='接着上次复制' if item.get('resume_bytes') else '复制并计算校验值', file=source.name)
+        chunks = _copy_resumable(item, part, meta, cancel, step)
         _progress(item['card'], phase='从固态硬盘读回校验', file=source.name)
-        if partial.stat().st_size != item['size'] or _hash_file(partial, cancel, step) != source_hash:
+        source_hash = _verify_chunks(part, chunks, cancel, step) if part.stat().st_size == item['size'] else None
+        if not source_hash:
             raise ValueError('读回校验不一致，卡上原片保留')
         if dest.exists():
             raise ValueError('目标文件名已被占用，卡上原片保留')
-        os.rename(partial, dest)
-    except BaseException:
-        partial.unlink(missing_ok=True)
+        os.rename(part, dest)
+        meta.unlink(missing_ok=True)
+    except ValueError:
+        part.unlink(missing_ok=True); meta.unlink(missing_ok=True)  # bad data is not worth resuming
         raise
+    # Cancel, quit or a pulled card keep the checked part for next time.
     os.utime(dest, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     append_log({'volume': item['volume'], 'relative': item['relative'], 'size': item['size'], 'mtime_ns': item['mtime_ns'],
                 'dest': str(dest), 'sha256': source_hash, 'verified_at': dt.datetime.now().astimezone().isoformat()})
@@ -423,8 +492,10 @@ def _run_card(card, items, cancel, totals):
         if cancel.is_set():
             break
         name = Path(item['source']).name
+        started, outcome = dt.datetime.now(), 'failed'
         try:
             proxies, damaged = _process(item, cancel, step)
+            outcome = 'damaged' if damaged else 'moved'
             target = f"{item.get('target_name') or Path(item['target']).name}/{item['folder']}/{item['name']}"
             if not damaged:
                 totals['moved'] += 1
@@ -434,8 +505,14 @@ def _run_card(card, items, cancel, totals):
                 saved = (f"LRF 已存到 {Path(damaged['lrf']).name}" + ('' if damaged['lrf_ok'] else '（但 LRF 也读不出）')) if damaged['lrf'] else '没有可保存的 LRF'
                 log(f"⚠ {name} 视频损坏：{damaged['reason']}。{saved}。请在下方确认是否移除损坏文件")
         except Exception as error:
-            totals['failed'] += 1
-            log(f'✗ {name}：{error}')
+            if cancel.is_set():
+                totals['paused'] += 1; outcome = 'paused'
+                log(f'⏸ {name} 已暂停，已复制并校验的部分会保留，下次插卡确认后接着复制')
+            else:
+                totals['failed'] += 1
+                log(f'✗ {name}：{error}')
+        applog.event('sd_import', source=item['source'], dest=item.get('dest'), size=item['size'], status=outcome,
+                     seconds=round((dt.datetime.now() - started).total_seconds(), 1))
         with _lock:
             job['progress'][card]['done'] += 1
 
@@ -458,14 +535,14 @@ def start(plan_id, eject=False):
         by_card.setdefault(item['card'], []).append(item)
 
     def controller():
-        totals = {'moved': 0, 'kept': 0, 'failed': 0}
+        totals = {'moved': 0, 'kept': 0, 'failed': 0, 'paused': 0}
         log(f'开始移动 {len(items)} 个视频，来自 {len(by_card)} 张卡；逐个复制、校验、删除')
         for card, group in by_card.items():  # strictly one file at a time, card after card
             if cancel.is_set():
                 break
             _run_card(card, group, cancel, totals)
         summary = f"完成：移动 {totals['moved']} 个" + (f"，{totals['kept']} 个视频损坏，等待你确认" if totals['kept'] else '') + (f"，失败 {totals['failed']} 个" if totals['failed'] else '')
-        if cancel.is_set(): summary = '已停止。' + summary
+        if cancel.is_set(): summary = '已暂停。' + summary + '。剩下的视频还在卡上，下次插卡会接着处理'
         log(summary)
         if eject and not cancel.is_set() and not totals['failed'] and not totals['kept']:
             for card, group in by_card.items():

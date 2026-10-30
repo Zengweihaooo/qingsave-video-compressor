@@ -186,6 +186,6 @@ if(MODE==='static'){
 b.onclick=async()=>{let busy=(await (await fetch('/health')).json()).busy;
 if(!confirm(busy?'轻存还在处理视频。退出会停止当前这一个，未完成的复制或压缩会被清理，原片不受影响；已经完成的不受影响。确定退出？':'退出轻存？'))return;
 b.disabled=true;b.textContent='正在安全退出…';try{await fetch('/quit',{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':'__TOKEN__'},body:'{}'})}catch(e){}
-document.body.innerHTML='<div style="font-family:system-ui;max-width:520px;margin:120px auto;text-align:center;color:#21362e"><h2>轻存已退出</h2><p style="color:#7d897f">黑色窗口会自动关闭。可以关闭这个页面了；下次双击「启动轻存.cmd」再打开。</p></div>'}}catch(e){}})();
+document.body.innerHTML='<div style="font-family:system-ui;max-width:520px;margin:120px auto;text-align:center;color:#21362e"><h2>轻存已退出</h2><p style="color:#7d897f">没做完的任务已保存，下次打开会提示继续。可以关闭这个页面了；下次双击「启动轻存」再打开。</p></div>'}}catch(e){}})();
 </script>
 </body></html>

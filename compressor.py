@@ -189,6 +189,19 @@ QUALITY = {"压缩较猛": {'libx265': 28, 'hevc_nvenc': 30},
            "中等压缩": {'libx265': 25, 'hevc_nvenc': 27},
            "压缩较轻": {'libx265': 22, 'hevc_nvenc': 24}}
 
+ENGINE_INFO = {'hevc_nvenc': ('NVIDIA 显卡', 'GPU'), 'hevc_qsv': ('Intel 核显', 'GPU'),
+               'hevc_videotoolbox': ('Apple 媒体引擎', 'GPU'), 'libx265': ('CPU（x265）', 'CPU'),
+               'copy': ('直接复制视频流', '不编码')}
+
+def short_error(error):
+    lines = [line.strip() for line in str(error).splitlines() if line.strip()]
+    return (lines[-1] if lines else str(error))[:180]
+
+def decode_args(engine, tuned=True):
+    # Decode on the NVIDIA card too, so the CPU is not the bottleneck; FFmpeg falls back to
+    # software decoding by itself when a stream is not supported.
+    return ['-hwaccel', 'cuda'] if engine == 'hevc_nvenc' and tuned else []
+
 def encoding_args(engine, bitrate, tenbit=False, level=None, tuned=True):
     quality = QUALITY.get(level, {}).get(engine)
     cap = ['-maxrate', str(int(bitrate * 1.5)), '-bufsize', str(bitrate * 3)]
@@ -449,7 +462,7 @@ class App(tk.Tk if tk else object):
                 if v.get('bit_rate'): rate = min(rate, int(int(v['bit_rate']) * 0.9))
                 tenbit = '10' in v.get('pix_fmt', '') or '12' in v.get('pix_fmt', '')
                 original_hash = digest_progress(self, src, '读取原片并校验内容')
-                used = None
+                used, used_tuned, skipped = None, True, []
                 for engine in ([] if copy_video else candidates(choice)):
                     quality = QUALITY.get(vl, {}).get(engine)
                     # Older NVIDIA drivers may reject lookahead/AQ; retry with plain VBR before moving on.
@@ -458,22 +471,25 @@ class App(tk.Tk if tk else object):
                             mode = (f'画质值 {quality}，峰值上限 {rate*1.5/1e6:.2f} Mbps' if quality and tuned
                                     else f'目标视频码率 {rate/1e6:.2f} Mbps')
                             self.events.put(f'试编码：{engine}，{mode}')
-                            run([executable('ffmpeg'), '-v', 'error', '-nostdin', '-i', str(src), '-t', '1', '-map', source_map, '-an'] + encoding_args(engine, rate, tenbit, vl, tuned) + ['-f', 'null', '-'], self.cancel)
+                            run([executable('ffmpeg'), '-v', 'error', '-nostdin', *decode_args(engine, tuned), '-i', str(src), '-t', '1', '-map', source_map, '-an'] + encoding_args(engine, rate, tenbit, vl, tuned) + ['-f', 'null', '-'], self.cancel)
                             used = engine; used_tuned = tuned; break
                         except RuntimeError as e:
                             if self.cancel.is_set(): raise
                             self.events.put(f'{engine} 不可用：{e}')
+                            skipped.append(f'{ENGINE_INFO.get(engine, (engine,))[0]}{"（完整参数）" if tuned and engine == "hevc_nvenc" and quality else ""}：{short_error(e)}')
                     if used: break
                 if copy_video: used = 'copy'
                 if not used: raise ValueError('没有可用的编码器')
                 color = []
                 for key, flag in [('color_primaries', '-color_primaries'), ('color_transfer', '-color_trc'), ('color_space', '-colorspace'), ('color_range', '-color_range')]:
                     if v.get(key) and v[key] != 'unknown': color += [flag, v[key]]
-                self.events.put(f'正在压缩：{src.name}（{used}）；可点击停止')
-                update_progress(self, phase='正在压缩', current_seconds=0)
+                name, kind = ENGINE_INFO.get(used, (used, ''))
+                self.events.put(f'正在压缩：{src.name}（{name}，{kind}）；可点击停止')
+                update_progress(self, phase='正在压缩', current_seconds=0, engine=used, engine_name=name, engine_kind=kind,
+                                engine_skipped=skipped, hw_decode=bool(decode_args(used, used_tuned)))
                 video_args = ['-c:v', 'copy'] if copy_video else encoding_args(used, rate, tenbit, vl, used_tuned) + color + ['-fps_mode', 'passthrough']
                 audio_args = ['-c:a', 'copy'] if al == '保留原片质量' else ['-c:a', 'aac', '-b:a', str(LEVELS[al][1])+'k']
-                run_progress([executable('ffmpeg'), '-v', 'error', '-nostdin', '-n', '-noautorotate', '-i', str(src), '-map', source_map, '-map', '0:a?', '-map_metadata', '0', '-map_chapters', '0'] + video_args + audio_args + ([] if pano else ['-movflags', '+faststart']) + [str(temp)], self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds))
+                run_progress([executable('ffmpeg'), '-v', 'error', '-nostdin', '-n', '-noautorotate', *decode_args(used, used_tuned), '-i', str(src), '-map', source_map, '-map', '0:a?', '-map_metadata', '0', '-map_chapters', '0'] + video_args + audio_args + ([] if pano else ['-movflags', '+faststart']) + [str(temp)], self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds))
                 if pano:
                     inject(temp)
                     if not any('spherical' in str(x).lower() for x in video(probe(temp, self.cancel)).get('side_data_list', [])):

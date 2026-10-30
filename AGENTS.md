@@ -20,6 +20,15 @@
 - 手动：`python web_app.py --port 3912`，浏览器开 `http://127.0.0.1:3912/`，素材日历在 `/library`。
 - 用户这台 Mac 的 Dock 里的 `~/Applications/轻存.app` 是原生包装（Mach-O，读取 Info.plist 的 `QingSaveRoot` 指向本仓库），它启动 `web_app.py --no-browser --port 0`。改完 Python 后要退出并重新打开 app 才生效；**重启前先确认没有任务在跑**：`/health` 的 `busy` 为 false，且 `/sd/state` 的 `running` 为 false（POST 需要页面里的 token）。
 
+## 常驻、日志与断点继续
+
+- `launch.py`：后台启动服务（Windows 用 pythonw，无窗口；端口优先 39390），已在运行就只重新打开页面；`--quit` 安全退出。服务把端口和 token 写在 `<数据目录>/instance.json`。关浏览器不影响服务。Windows 包里的「启动轻存 / 重新打开轻存页面 / 退出轻存.cmd」都是调用它。
+- 数据目录（`applog.DATA_DIR`）：Windows `%APPDATA%\QingSave`，macOS `~/Library/Application Support/QingSave`。里面有 `logs/YYYY-MM-DD.log`（所有消息）、`logs/events-YYYY-MM.jsonl`（每个压缩 / 导入任务的结果、编码器、大小、耗时）、`queue.json`（压缩队列）、`sd-imports.jsonl`（导入记录）。
+- 压缩队列每 1.5 秒存盘。退出（`/quit`）时不取消排队任务，正在压的那个标为 `interrupted`；下次启动全部未完成任务显示为「待继续」，用户点「继续处理」（`/queue/continue`）才开始，已完成的按 `.dji.json` 跳过，被打断的从头压。编码本身不支持从中间续。
+- SD 导入断点续拷：复制写到目标盘 `<盘根>/.qingsave/partials/<key>.part`，每 64 MB 记录一次分块 SHA-256（`.json`）。中断后再次导入时先校验已有分块，从第一个不对的分块接着复制；读回时逐块比对。校验不一致才删掉 part，取消 / 拔卡 / 退出都保留。
+- 编码器：`/hardware` 启动时试编码检测可用编码器和显卡型号（Windows 用 nvidia-smi），页面显示「自动选择」会用哪个。压缩进度里有 `engine_name/engine_kind/engine_skipped`，显卡没用上会写原因。NVIDIA 路线同时用 `-hwaccel cuda` 解码；完整播放检查仍用 CPU 解码（为了校验严格）。
+- `tools/selftest.py` 会把 applog 指到临时目录，不会污染真实日志。
+
 ## 验证
 
 ```

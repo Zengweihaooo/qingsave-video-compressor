@@ -147,12 +147,53 @@ def test_sd(base):
     check(not broken.exists() and (ssd / '10.21 骑车/20261021_150000_ORG_006.mp4').exists(), '确认后清卡，保留一份损坏原片')
 
 
+def test_sd_resume(base):
+    print('SD 卡断点续拷')
+    card_root, ssd = base / 'card2', base / 'ssd2'
+    (card_root / 'DCIM').mkdir(parents=True); ssd.mkdir()
+    big = card_root / 'DCIM/CAM_20261022100000_0001_D.MP4'
+    good = make(base, 'tmp/clip.mp4', 3)
+    big.write_bytes(good.read_bytes() + os.urandom(150 * 1024 * 1024))  # playable head, ~3 chunks long
+    original = big.read_bytes()
+    sd.LOG_PATH = base / 'sd-log2.jsonl'
+    card = {'mount': str(card_root), 'name': 'card2', 'uuid': 'U2'}
+    sd.list_volumes = lambda roots: ([card], [{'mount': str(ssd), 'name': 'ssd2', 'free': 10**12}])
+    real_copy = sd._copy_resumable
+
+    def stop_after_two_chunks(item, part, meta, cancel, step):
+        seen = []
+        def counting(n):
+            step(n); seen.append(n)
+            if len(seen) == 2: cancel.set()
+        return real_copy(item, part, meta, cancel, counting)
+    sd._copy_resumable = stop_after_two_chunks
+    plan = sd.build_plan((), w.find_storage_dir)
+    sd.start(plan['plan_id'])
+    while sd.job['running']:
+        time.sleep(0.1)
+    sd._copy_resumable = real_copy
+    part = next((ssd / '.qingsave/partials').glob('*.part'))
+    check(big.exists() and part.stat().st_size == 2 * sd.CHUNK, '中断后卡上原片还在，已复制部分保留')
+    plan = sd.build_plan((), w.find_storage_dir)
+    check(plan['items'][0]['resume_bytes'] == 2 * sd.CHUNK, '重新检测时知道可以接着复制')
+    sd.start(plan['plan_id'])
+    while sd.job['running']:
+        time.sleep(0.1)
+    dest = ssd / '10.22' / '20261022_100000_ORG_001.mp4'
+    check(dest.is_file() and dest.read_bytes() == original, '接着复制完成，内容与原片完全一致')
+    check(not big.exists() and not list((ssd / '.qingsave/partials').glob('*')), '校验后清卡并清理临时文件')
+    check(any('接着上次复制' in line for line in sd.job['logs']), '日志里记录了续拷')
+
+
 if __name__ == '__main__':
     if not L.c.executable('ffmpeg') or not L.c.executable('ffprobe'):
         sys.exit('需要 FFmpeg：放进 bin/ 或加入 PATH')
     with tempfile.TemporaryDirectory(prefix='qingsave-selftest-') as folder:
         base = Path(folder)
+        import applog  # keep test logs out of the real log folder
+        applog.DATA_DIR, applog.LOG_DIR = base / 'appdata', base / 'appdata' / 'logs'
         test_library(base)
         test_sd(base)
+        test_sd_resume(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)
