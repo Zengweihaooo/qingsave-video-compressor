@@ -15,7 +15,9 @@ import sys
 import threading
 from pathlib import Path
 
-if sys.platform == 'win32':
+if sys.platform == 'win32' and (Path(__file__).resolve().parent / '.portable-data').exists():
+    DATA_DIR = Path(__file__).resolve().parent.parent / 'QingSave-data'
+elif sys.platform == 'win32':
     DATA_DIR = Path(os.environ.get('APPDATA') or Path.home()) / 'QingSave'
 elif sys.platform == 'darwin':
     DATA_DIR = Path.home() / 'Library' / 'Application Support' / 'QingSave'

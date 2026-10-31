@@ -79,7 +79,21 @@ td.name{max-width:420px;overflow-wrap:anywhere}
 const token='__TOKEN__';const $=id=>document.getElementById(id);
 let D=null,year=null,selected=null,conflictIds=new Set();
 const KIND={original:'原片',compressed:'压缩版',unknown:'无法判断',proxy:'LRF 低清'};
-async function api(path,data={}){let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':token},body:JSON.stringify(data)});let v=await r.json();if(!r.ok)throw Error(v.error||'操作失败');return v}
+async function requestApi(path,data={}){let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':token},body:JSON.stringify(data)});let v=await r.json();if(!r.ok)throw Error(v.error||'操作失败');return v}
+let pickerPending=false;
+async function api(path,data={}){
+  if(path!=='/pick')return requestApi(path,data);
+  if(pickerPending)throw Error('选择窗口已打开，请完成或取消上一次选择');
+  pickerPending=true;
+  const ids=['folder','libraryBrowse','browse','add','choose','match','link'];
+  const controls=ids.map(id=>document.getElementById(id)).filter(Boolean).map(button=>({button,disabled:button.disabled}));
+  controls.forEach(({button})=>button.disabled=true);
+  const note=document.createElement('div');note.setAttribute('role','status');note.textContent='正在打开选择窗口，请在弹出的 Windows 窗口中选择或取消…';
+  note.style.cssText='position:fixed;bottom:20px;left:20px;z-index:9999;padding:14px;background:#285b42;color:white;border-radius:9px';document.body.append(note);
+  try{return await requestApi(path,data)}
+  finally{pickerPending=false;controls.forEach(({button,disabled})=>button.disabled=disabled);note.remove()}
+}
+
 function size(n){return n>=1e12?(n/1e12).toFixed(2)+' TB':n>=1e9?(n/1e9).toFixed(1)+' GB':(n/1e6).toFixed(0)+' MB'}
 function dur(s){s=Math.round(s||0);let h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`}
 function el(tag,attrs={},...kids){let e=document.createElement(tag);for(let[k,v]of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v)}for(let k of kids)if(k!=null)e.append(k);return e}

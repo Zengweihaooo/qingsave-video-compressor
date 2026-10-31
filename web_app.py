@@ -20,7 +20,10 @@ import osv_pipeline as osv
 import sd_import as sd
 import library
 import applog
+import temp_storage as storage
 import time
+import processing_time
+import pipeline_runtime as pipeline
 
 TOKEN = secrets.token_urlsafe(32)
 BUILD = 'osv-preview-2'
@@ -33,19 +36,27 @@ dispatcher_thread = None
 queue_paused = False
 queue_stopping = False
 current_owner = None
+active_owners = {}
 exiting = False
 QUEUE_FILE = 'queue.json'
+TIME_ESTIMATOR = processing_time.Estimator()
 PREFERRED_PORT = 39390  # fixed so a bookmark / the launcher always finds the running copy
 TEMP_PARTIAL_RE = re.compile(r'^\.[0-9a-f]{32}\.partial\.mp4$')
 hardware = {'status': 'idle', 'items': [], 'gpu': '', 'auto': ''}
-staging = tempfile.TemporaryDirectory(prefix='dji-drop-')
+DROP_ROOT = applog.DATA_DIR / 'drop-staging'
+DROP_ROOT.mkdir(parents=True, exist_ok=True)
+staging = tempfile.TemporaryDirectory(prefix='dji-drop-', dir=DROP_ROOT)
 dropped = set()
 scan_dates = {}
 origin_cache = {}
 
 SKIP_DIRS = {'$RECYCLE.BIN', 'System Volume Information', '.accelerate', 'Temp', '__pycache__', '.venv'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.osv'}
-LIBRARY_ROOTS = (Path('/Volumes/Data'), Path('/Volumes/Weihao'))
+if sys.platform == 'win32':
+    _, _targets = sd.list_volumes(())
+    LIBRARY_ROOTS = tuple(Path(t['mount']) for t in sorted(_targets, key=lambda t: (t['name'].lower()!='data',t['name'].lower())))
+else:
+    LIBRARY_ROOTS = (Path('/Volumes/Data'), Path('/Volumes/Weihao'))
 # 10.12、10.12 第一次见 rebelo、10.13-瞎逛健身房 are the same day's folder.
 DATE_DIR_RE = re.compile(r'^(\d{1,2})\.(\d{1,2})(?!\d)(.*)$')
 
@@ -259,9 +270,14 @@ def scan_library(root, year=None):
             'skipped_count': skipped, 'unsupported_count': unsupported, 'unknown_count': unknown}
 
 WINDOWS_PICKER = r"""
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
 Add-Type -AssemblyName System.Windows.Forms
-$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true; ShowInTaskbar = $false; Opacity = 0; Width = 1; Height = 1; StartPosition = 'CenterScreen'}
+$owner.Show()
+$owner.Activate()
+try {
 if ($args[0] -eq 'folder') {
   $d = New-Object System.Windows.Forms.FolderBrowserDialog
   $d.ShowNewFolderButton = $true
@@ -272,17 +288,42 @@ if ($args[0] -eq 'folder') {
   $d.Filter = if ($args[0] -eq 'records') { 'Records|*.dji.json' } else { 'Videos|*.mp4;*.mov;*.mkv;*.osv' }
   if ($d.ShowDialog($owner) -eq 'OK') { ConvertTo-Json -Compress @($d.FileNames) } else { '[]' }
 }
+} finally { $d.Dispose(); $owner.Close(); $owner.Dispose() }
 """
 
+PICKER_LOCK = threading.Lock()
+
 def picker(kind):
+    if kind not in ('folder', 'files', 'records'):
+        raise ValueError('未知选择类型')
+    if not PICKER_LOCK.acquire(blocking=False):
+        raise ValueError('选择窗口已经打开，请先完成或取消上一次选择')
+    try:
+        return _picker(kind)
+    except Exception as exc:
+        applog.write('文件选择', str(exc))
+        raise
+    finally:
+        PICKER_LOCK.release()
+
+def _picker(kind):
     if sys.platform == 'win32':
         # Portable Python ships without Tk, so use the native Windows dialogs.
         if kind not in ('folder', 'files', 'records'): raise ValueError('未知选择类型')
         script = WINDOWS_PICKER.replace('$args[0]', f"'{kind}'")
         encoded = __import__('base64').b64encode(script.encode('utf-16-le')).decode()
-        out = subprocess.check_output(['powershell', '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-                                      creationflags=subprocess.CREATE_NO_WINDOW)
-        return json.loads(out.decode('utf-8-sig').strip() or '""')
+        powershell = str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+        try:
+            result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', encoded],
+                                    stdin=subprocess.DEVNULL, capture_output=True, timeout=300,
+                                    creationflags=subprocess.CREATE_NO_WINDOW)
+        except subprocess.TimeoutExpired:
+            raise ValueError('选择窗口等待超过 5 分钟，请重新点击浏览') from None
+        if result.returncode:
+            detail = result.stderr.decode('utf-8-sig', errors='replace').strip()
+            raise ValueError('无法打开选择窗口：' + detail[-1500:])
+        value = json.loads(result.stdout.decode('utf-8-sig').strip() or ('""' if kind == 'folder' else '[]'))
+        return value if kind == 'folder' or isinstance(value, list) else [value]
     code = '''import tkinter as t,json,sys
 from tkinter import filedialog as d
 r=t.Tk();r.withdraw();r.attributes('-topmost',True)
@@ -316,6 +357,7 @@ def archive_directory(path, output_root=None):
     existing = find_storage_dir(month, day, library_roots(output_root))
     if existing:
         return existing
+    if not output_root and not LIBRARY_ROOTS: raise ValueError('请先连接 SSD 或选择输出文件夹')
     base = Path(output_root).expanduser() if output_root else LIBRARY_ROOTS[0]
     return base / f'{month:02d}.{day:02d}'
 
@@ -325,10 +367,10 @@ def names(data):
     paths = sorted(set(data['files']), key=sort_key)
     items = []
     for index, path in enumerate(paths):
-        directory = archive_directory(path, data.get('output') or None) if data.get('archive', True) else None
+        directory = archive_directory(path, data.get('output') or None) if data.get('archive', True) and not data.get('same') else None
         items.append({
             'source': path,
-            'name': c.output_name(path, data['suffix'], start + index, width) if path not in scan_dates else f'{scan_dates[path]}{("_" + data["suffix"]) if data["suffix"] else ""}_{start + index:0{width}d}.mp4',
+            'name': c.output_name(path, data['suffix'], start + index, width, timestamp=scan_dates.get(path)),
             'folder': directory.name if directory else '',
             'directory': str(directory) if directory else '',
             'size': Path(path).stat().st_size,
@@ -337,7 +379,7 @@ def names(data):
 
 def public_tasks():
     with task_condition:
-        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine')} for item in tasks]
+        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode')} for item in tasks]
 
 def clear_finished_history():
     """Start a clean UI round without touching media or on-disk manifests."""
@@ -360,72 +402,125 @@ def queue_progress():
         visible = [item for item in tasks if item['status'] != 'removed']
         done = sum(item['status'] in ('completed', 'failed', 'cancelled') for item in visible)
         active = next((item for item in visible if item['status'] == 'running'), None)
-        owner = current_owner
+        owners = dict(active_owners)
+        owner = owners.get(active['id']) if active else None
         paused = queue_paused
     detail = {}
     if owner:
         with owner.progress_lock: detail = dict(owner.progress)
+    detail['active_tasks'] = []
+    for task in visible:
+        if task['id'] not in owners: continue
+        with owners[task['id']].progress_lock: values = dict(owners[task['id']].progress)
+        detail['active_tasks'].append({'id':task['id'],'file':Path(task['source']).name,**values})
+    detail['timing'] = TIME_ESTIMATOR.measure(visible, detail, paused)
     detail.update(total=len(visible), processed=done, remaining=max(0, len(visible)-done), paused=paused,
                   task_id=active['id'] if active else '', queue_status='paused' if paused else ('running' if active else 'idle'))
     return detail
 
 def dispatch_loop():
-    global dispatcher_thread, queue_stopping, current_owner
-    while True:
-        with task_condition:
-            while queue_paused and not queue_stopping:
-                task_condition.wait()
+    global dispatcher_thread,queue_stopping
+    with task_condition:
+        while True:
             if queue_stopping:
-                if not exiting:  # quitting keeps the queue so it can continue next time
+                if not exiting:
                     for item in tasks:
-                        if item['status'] == 'pending': item['status'] = 'cancelled'; item['message'] = '已停止'
-                state['busy'] = False; dispatcher_thread = None; queue_stopping = False
-                task_condition.notify_all(); return
-            item = next((candidate for candidate in tasks if candidate['status'] == 'pending'), None)
-            if not item:
-                state['busy'] = False; dispatcher_thread = None; current_owner = None
-                task_condition.notify_all(); return
-            item['status'] = 'running'; item['message'] = '处理中'
-            owner = types.SimpleNamespace(events=worker.events, cancel=threading.Event(), manifests=worker.manifests,
-                                          progress={}, progress_lock=threading.Lock())
-            current_owner = owner
-        failure, started = None, time.time()
-        applog.write('压缩', f"开始：{item['source']} → {item['output']}")
-        try:
-            if Path(item['source']).suffix.lower() == '.osv':
-                osv.process(owner, Path(item['source']), Path(item['output']), item['config'], item['osv'])
-            else:
-                c.App.compress(owner, [(Path(item['source']), Path(item['output']))], item['config'])
-        except Exception as error:
-            failure = str(error)
-            owner.events.put(f"{Path(item['source']).name}：{failure}")
-        manifest = Path(item['output']).with_suffix('.mp4.dji.json')
-        verified, record = False, {}
-        try:
-            record = json.loads(manifest.read_text(encoding='utf8'))
-            verified = record.get('verified') and record.get('source') == item['source']
-        except (OSError, ValueError): pass
-        with owner.progress_lock:
-            item['engine'] = record.get('engine') or owner.progress.get('engine')
+                        if item['status']=='pending':item.update(status='cancelled',message='已停止')
+                if not active_owners:
+                    state['busy']=False;dispatcher_thread=None;queue_stopping=False
+                    task_condition.notify_all();return
+            elif not queue_paused:
+                sources={os.path.normcase(tasks_by_id['source']) for tasks_by_id in tasks if tasks_by_id['id'] in active_owners}
+                while len(active_owners)<pipeline.settings['jobs']:
+                    item=next((i for i in tasks if i['status']=='pending' and os.path.normcase(i['source']) not in sources),None)
+                    if item is None:break
+                    item.update(status='running',message='处理中')
+                    item['verification_mode'] = item.get('verification_mode') or pipeline.settings['verification']
+                    owner=types.SimpleNamespace(events=worker.events,cancel=threading.Event(),manifests=worker.manifests,
+                        progress={},progress_lock=threading.Lock(),verification_mode=item.get('verification_mode') or pipeline.settings['verification'])
+                    active_owners[item['id']]=owner;sources.add(os.path.normcase(item['source']))
+                    threading.Thread(target=process_task,args=(item,owner),daemon=True).start()
+            if not active_owners and not any(i['status']=='pending' for i in tasks):
+                state['busy']=False;dispatcher_thread=None;task_condition.notify_all();return
+            task_condition.wait(.2)
+
+def process_task(item,owner):
+    try:
+        _process_task(item,owner)
+    except Exception as exc:
         with task_condition:
-            if owner.cancel.is_set() and exiting:
-                item['status'] = 'interrupted'; item['message'] = '退出时中断，下次打开可继续'
-            elif owner.cancel.is_set():
-                item['status'] = 'cancelled'; item['message'] = '已取消，可重新加入'
-            elif not failure and Path(item['output']).is_file() and verified:
-                item['status'] = 'completed'; item['message'] = '已完成并验证'
-            else:
-                item['status'] = 'failed'; item['message'] = failure or '失败，请查看日志后重试'
-            current_owner = None
+            item.update(status='failed',message=str(exc))
+        owner.events.put(f"{Path(item['source']).name}：{exc}")
+    finally:
+        storage.release_reservation(item['id'])
+        with task_condition:
+            active_owners.pop(item['id'],None)
             task_condition.notify_all()
-        applog.event('compress', source=item['source'], output=item['output'], status=item['status'], message=item['message'],
-                     engine=item.get('engine'), video=item['video'], audio=item['audio'], seconds=round(time.time() - started, 1),
-                     source_size=(record.get('source_state') or {}).get('size'), output_size=(record.get('output_state') or {}).get('size'))
+
+def _process_task(item,owner):
+    failure, started = None, time.time()
+    with task_condition:
+        item['started_at'] = started
+        try: item['source_size'] = Path(item['source']).stat().st_size
+        except OSError: item['source_size'] = 0
+    applog.write('压缩', f"开始：{item['source']} → {item['output']}")
+    try:
+        storage.flush(storage_returned)
+        output, config = storage.prepare(item, owner)
+        with task_condition: item['output'] = str(output)
+        if Path(item['source']).suffix.lower() == '.osv':
+            osv.process(owner, Path(item['source']), output, config, item['osv'])
+        else:
+            c.App.compress(owner, [(Path(item['source']), output)], config)
+    except Exception as error:
+        failure = str(error)
+        owner.events.put(f"{Path(item['source']).name}：{failure}")
+    manifest = Path(item['output']).with_suffix('.mp4.dji.json')
+    verified, record = False, {}
+    try:
+        record = json.loads(manifest.read_text(encoding='utf8'))
+        verified = record.get('verified') and record.get('source') == item['source']
+    except (OSError, ValueError): pass
+    with owner.progress_lock:
+        item['engine'] = record.get('engine') or owner.progress.get('engine')
+    with task_condition:
+        if owner.cancel.is_set() and exiting:
+            item['status'] = 'interrupted'; item['message'] = '退出时中断，下次打开可继续'
+        elif owner.cancel.is_set():
+            item['status'] = 'cancelled'; item['message'] = '已取消，可重新加入'
+        elif not failure and Path(item['output']).is_file() and verified:
+            item['status'] = 'completed'; item['message'] = '已完成并验证'
+            if item.get('return_path'):
+                storage.mark_ready(item['id'])
+                item['message'] = '已完整验证，暂存在桌面，等待空间后自动移回'
+                if str(manifest) in worker.manifests:
+                    worker.manifests.remove(str(manifest))
+        else:
+            item['status'] = 'failed'; item['message'] = failure or '失败，请查看日志后重试'
+        item['attempt_seconds'] = max(0, time.time() - started)
+        item['elapsed_seconds'] = (item.get('elapsed_seconds') or 0) + item['attempt_seconds']
+        item['started_at'] = None
+        task_condition.notify_all()
+    applog.event('compress', source=item['source'], output=item['output'], status=item['status'], message=item['message'],
+                 engine=item.get('engine'), video=item['video'], audio=item['audio'], seconds=round(time.time() - started, 1),
+                 source_size=(record.get('source_state') or {}).get('size'), output_size=(record.get('output_state') or {}).get('size'))
+
+def storage_returned(entry):
+    with task_condition:
+        item = next((i for i in tasks if i['id'] == entry['id']), None)
+        if item:
+            item['output'] = entry['target']
+            item['return_path'] = None
+            item['message'] = '已从桌面移回并校验'
+            final_manifest = str(Path(entry['target']).with_suffix('.mp4.dji.json'))
+            if final_manifest not in worker.manifests:
+                worker.manifests.append(final_manifest)
+            task_condition.notify_all()
 
 def snapshot_queue():
     with task_condition:
         return [{key: (list(item[key]) if key == 'config' else item.get(key))
-                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine')} for item in tasks]
+                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode')} for item in tasks]
 
 def queue_saver():
     last = None
@@ -447,6 +542,7 @@ def load_queue():
                 item['status'] = 'interrupted'; item['message'] = '上次没做完，等待继续'
             item['config'] = tuple(item.get('config') or ())
             tasks.append(item)
+    processing_time.restore(tasks)
     return sum(item['status'] == 'interrupted' for item in tasks)
 
 def continue_queue():
@@ -564,13 +660,18 @@ def enqueue(data):
         dest.mkdir(parents=True, exist_ok=True)
     with task_condition:
         reserved = {os.path.normcase(item['output']) for item in tasks if item['status'] in ('pending', 'running')}
+        reserved.update(os.path.normcase(item['return_path']) for item in tasks if item.get('return_path'))
+        reserved.update(os.path.normcase(entry['target']) for entry in storage.snapshot())
         if any(target.exists() or source == target or os.path.normcase(str(target)) in reserved for source, target, _ in jobs):
             raise ValueError('输出文件已存在或已在队列中，请修改序号或输出目录')
+        names_in_batch = [os.path.normcase(str(target)) for _, target, _ in jobs]
+        if len(names_in_batch) != len(set(names_in_batch)):
+            raise ValueError('保留原编号后出现同名目标，请修改后缀或输出目录；不会覆盖文件')
         added = []
         for source, target, config in jobs:
             target.parent.mkdir(parents=True, exist_ok=True)
             item = {'id': uuid.uuid4().hex, 'source': str(source), 'output': str(target), 'config': config,
-                    'osv': dict(export_options),
+                    'osv': dict(export_options), 'verification_mode': data.get('verification_mode') or pipeline.settings['verification'], 'temporary_storage': bool(data.get('temporary_storage', True)), 'source_size': source.stat().st_size,
                     'video': config[0], 'audio': config[1], 'status': 'pending', 'message': '等待处理'}
             tasks.append(item); added.append(item['id'])
         tasks.sort(key=lambda item: sort_key(item['source']))
@@ -587,16 +688,17 @@ def shutdown():
     """Stop the running step safely (originals untouched), keep the rest of the queue for next time, then exit."""
     global queue_stopping, exiting
     exiting = True
+    storage.STOP.set()
     applog.write('轻存', '正在退出')
     with task_condition:
         queue_stopping = True
-        owner = current_owner
+        owners = list(active_owners.values())
         task_condition.notify_all()
-    if owner: c.cancel_work(owner.cancel)
+    for owner in owners: c.cancel_work(owner.cancel)
     sd.cancel(); library.job['cancel'].set(); worker.cancel.set()
     for _ in range(100):  # up to 20 s for the running step to clean up
         with task_condition:
-            idle = current_owner is None
+            idle = not active_owners
         if idle and not sd.job['running'] and not library.job['running']:
             break
         __import__('time').sleep(0.2)
@@ -674,7 +776,22 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/state':
                 while not worker.events.empty() and not DRAINER['on']: state['logs'].append(worker.events.get())
                 self.reply({'busy':state['busy'],'logs':state['logs'],'quick_delete_count':len(worker.manifests),
-                            'progress':queue_progress() if tasks else {}, 'tasks':public_tasks()}); return
+                            'progress':queue_progress() if tasks else {}, 'tasks':public_tasks(), 'temporary_storage':storage.snapshot()}); return
+            if self.path == '/pipeline':
+                if data:
+                    with task_condition:
+                        if active_owners or state['busy']:raise ValueError('请在队列空闲时更改并行设置')
+                        pipeline.configure(data)
+                self.reply(dict(pipeline.settings));return
+            if self.path == '/task-verification':
+                mode = data.get('mode')
+                if mode not in ('cpu', 'gpu'): raise ValueError('无效的检查方式')
+                with task_condition:
+                    item = next((i for i in tasks if i['id'] == data.get('id')), None)
+                    if not item or item['status'] in ('running', 'completed'):
+                        raise ValueError('只能修改尚未处理或需要重试的视频')
+                    item['verification_mode'] = mode
+                self.reply({});return
             if self.path == '/hardware':
                 if data.get('recheck') and hardware['status'] != 'checking':
                     threading.Thread(target=probe_hardware, daemon=True).start(); time.sleep(0.05)
@@ -693,9 +810,9 @@ class Handler(BaseHTTPRequestHandler):
                 global queue_stopping
                 with task_condition:
                     queue_stopping = True
-                    owner = current_owner
+                    owners = list(active_owners.values())
                     task_condition.notify_all()
-                if owner: c.cancel_work(owner.cancel)
+                for owner in owners: c.cancel_work(owner.cancel)
                 self.reply({}); return
             if self.path == '/pause':
                 global queue_paused
@@ -713,7 +830,7 @@ class Handler(BaseHTTPRequestHandler):
                     item = next((item for item in tasks if item['id'] == task_id), None)
                     if not item: raise ValueError('找不到这个任务')
                     if item['status'] == 'pending': item['status'] = 'cancelled'; item['message'] = '已取消，可重新加入'
-                    elif item['status'] == 'running': owner = current_owner
+                    elif item['status'] == 'running': owner = active_owners.get(task_id)
                     else: owner = None
                     task_condition.notify_all()
                 if item['status'] == 'running' and owner: c.cancel_work(owner.cancel)
@@ -728,6 +845,7 @@ class Handler(BaseHTTPRequestHandler):
                     state['busy'] = True
                     global dispatcher_thread
                     if dispatcher_thread is None or not dispatcher_thread.is_alive():
+                        queue_stopping = False
                         dispatcher_thread = threading.Thread(target=dispatch_loop, daemon=True); dispatcher_thread.start()
                     task_condition.notify_all()
                 self.reply({}); return
@@ -791,6 +909,11 @@ if __name__=='__main__':
     if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw): keep output in the log folder
         applog.LOG_DIR.mkdir(parents=True, exist_ok=True)
         sys.stdout = sys.stderr = open(applog.LOG_DIR / 'console.log', 'a', encoding='utf8', buffering=1)
+    # pythonw may inherit redirected cp1252 streams instead of None.
+    # Chinese startup/shutdown messages must also be safe in that case.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf8', errors='backslashreplace')
     sys.excepthook = lambda kind, value, tb: applog.write('错误', ''.join(__import__('traceback').format_exception(kind, value, tb)))
     try:
         server=ThreadingHTTPServer(('127.0.0.1', PREFERRED_PORT if args.port is None else args.port),Handler)
@@ -800,7 +923,10 @@ if __name__=='__main__':
     url=f'http://127.0.0.1:{server.server_port}/'
     applog.save_json('instance.json', {'port': server.server_port, 'pid': os.getpid(), 'token': TOKEN,
                                        'started': dt.datetime.now().isoformat(timespec='seconds')})
+    pipeline.initialize()
+    storage.initialize()
     interrupted = load_queue()
+    threading.Thread(target=storage.monitor, args=(storage_returned,), daemon=True).start()
     DRAINER['on'] = True
     for target in (drain_events, queue_saver, probe_hardware):
         threading.Thread(target=target, daemon=True).start()

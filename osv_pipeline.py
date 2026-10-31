@@ -44,7 +44,7 @@ def fps(info):
     return n / d
 
 
-def validate_panorama(source_info, output, cancel, expected_size=None, on_progress=None):
+def validate_panorama(source_info, output, cancel, expected_size=None, on_progress=None, mode='cpu'):
     """Check output projection metadata, streams and timeline, then decode every frame."""
     info = c.probe(output, cancel)
     streams = [s for s in info['streams'] if s.get('codec_type') == 'video'
@@ -64,7 +64,7 @@ def validate_panorama(source_info, output, cancel, expected_size=None, on_progre
     primary = c.video(expected)
     primary.update(width=v['width'], height=v['height'])
     expected['streams'] = [primary] + [s for s in expected['streams'] if s.get('codec_type') != 'video']
-    c.validate(expected, output, cancel, on_progress)
+    c.validate(expected, output, cancel, on_progress, mode=mode)
     return info
 
 
@@ -225,11 +225,11 @@ def process(owner, source, output, config, options):
         exporter(export_source, intermediate, owner, opts, info)
         c.update_progress(owner, phase='校验全景导出', current_seconds=0)
         validate_panorama(info, intermediate, owner.cancel, SIZES[opts['resolution']],
-                          lambda seconds: c.update_progress(owner, current_seconds=seconds))
+                          lambda seconds: c.update_progress(owner, current_seconds=seconds), mode=getattr(owner,'verification_mode','cpu'))
         # Keep temporary manifests private until provenance is rewritten to the OSV.
         child = types.SimpleNamespace(events=owner.events, cancel=owner.cancel, manifests=[],
                                       progress=owner.progress, progress_lock=owner.progress_lock,
-                                      display_source_name=source.name)
+                                      display_source_name=source.name, verification_mode=getattr(owner,'verification_mode','cpu'))
         candidate = intermediate.with_name('compressed.mp4')
         c.App.compress(child, [(intermediate, candidate)], (config[0], config[1], config[2], False, True))
         candidate_manifest = candidate.with_suffix('.mp4.dji.json')
@@ -244,7 +244,7 @@ def process(owner, source, output, config, options):
             raise ValueError('处理期间 OSV 原片发生变化，拒绝标记完成')
         c.update_progress(owner, phase='核验最终全景成品', current_seconds=0, duration=duration)
         validate_panorama(info, candidate, owner.cancel, SIZES[opts['resolution']],
-                          lambda seconds: c.update_progress(owner, current_seconds=seconds))
+                          lambda seconds: c.update_progress(owner, current_seconds=seconds), mode=getattr(owner,'verification_mode','cpu'))
         record.update(verified=True, output_sha256=c.digest(candidate, owner.cancel))
         manifest = publish(candidate, output, record, owner)
         if getattr(owner, 'write_source_marker', True):

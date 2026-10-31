@@ -74,3 +74,27 @@ python tools/selftest.py
 - 用户 24–26 年的素材盘接在另一台电脑（很可能是 Windows + RTX 3080）上，还没在真实大盘上扫过。接手后：在那台电脑拉代码 → 跑 `tools/selftest.py` → 打开轻存 `/library` 扫那块盘 → 把扫描摘要和可疑项告诉用户，**改名前让用户在页面上确认**。
 - NVIDIA 新参数（cq / AQ / lookahead）还没在 3080 上实测；压一段后看日志是否显示「画质值 27」。
 - 可选后续：坏视频修复（untrunc，需同相机好文件做参照）。
+
+## 临时桌面存储
+- temp_storage.py：空间不足时暂存桌面 QingSave-Temporary，后台每 30 秒尝试 SHA-256 校验移回；temporary-storage.json 持久化待移回记录。移回前保留原片。两个位置均不足时等待空间。
+- 队列保存 return_path/temporary_storage；UI 可关闭新任务的临时存储。压缩与移回通过 IO_LOCK 串行；暂存成品在移回前不加入快速删除列表。
+
+## 时间显示
+- processing_time.py：当前阶段按实时进度估算；视频和队列总剩余时间按已完成同档位/编码器的视频大小和实际用时估算，冷启动显示正在估算。
+- started_at 是本次运行开始时间，elapsed_seconds 累计尝试用时，attempt_seconds 本次完整处理用时；后两项随 queue.json 持久化。旧任务从 events 日志恢复用时。等待移回空间不计入压缩预计时间。
+
+## 用户最新要求：GPU 检查与压缩流水线
+- 用户明确选择 CPU 或 GPU，不强制 GPU 后再 CPU 复核；GPU 检查失败保留原片并报错。删除前按匹配记录 verification_mode 复核，不悄悄切换 CPU。
+- 新要求覆盖此前压缩必须逐个的偏好：压缩调度支持 1–4 个文件流水线，最多 3 路编码、2 路检查。默认三路文件、一编码、一检查、GPU 检查；SD 导入仍逐个。pipeline_runtime.py 管理编码/检查并发和单路哈希，pipeline-settings.json 保存设置。
+- active_owners 按任务 ID 管理取消/停止，重复原片不同时处理；temp_storage 按盘预留空间，防止并行超额占用。
+- Windows 三个 CMD 入口和 launch.py 子进程均使用 -X utf8；web_app.py 也对重定向输出设置 UTF-8。
+
+## 原编号保留
+- 用户要求：原文件末尾是 002，压缩后仍是 002。output_sequence 保留末尾独立数字及前导零；无末尾编号才按起始序号/位数生成。日期时间本身不当作序号。预览和压缩命名统一调用 output_name，批次同名拒绝覆盖。
+
+## SSD 便携模式与无人值守任务
+- 用户要求离开后完成任务，视频和运行记录不留在电脑。D: Data 与 F: Weihao 是同一块 Realtek RTL9210 外接 USB SSD 的两个分区；C: 是内置 SanDisk。
+- app/.portable-data 启用便携模式，applog.DATA_DIR 位于 F:/轻存-Windows/QingSave-data，拖入暂存与备用视频区也位于 SSD；禁止退回 C 盘。Windows 默认库位置按盘符检测。
+- maintenance/setup-and-finish.py 在 SSD 后台继续队列并检查最终状态，mission-status.json 记录结果；系统保持唤醒但显示器可关闭。所有未完成任务改为原片目录输出，检查方式和删除选择保持用户设置。
+- 本次电脑工作文件迁到 maintenance/computer-files-backup；只在复制和哈希校验通过后清理原本机目录。不要把历史记录中的 C 路径误认为仍有文件。
+

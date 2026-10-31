@@ -14,6 +14,10 @@ import time
 import webbrowser
 from pathlib import Path
 
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding='utf8', errors='backslashreplace')
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import applog  # noqa: E402
@@ -46,14 +50,14 @@ def start():
     python = Path(sys.executable)
     if sys.platform == 'win32':
         windowless = python.with_name('pythonw.exe')
-        command = [str(windowless if windowless.exists() else python), str(HERE / 'web_app.py'), '--no-open']
+        command = [str(windowless if windowless.exists() else python), '-X', 'utf8', str(HERE / 'web_app.py'), '--no-open']
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         subprocess.Popen(command, cwd=HERE, creationflags=flags, close_fds=True,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         log = applog.LOG_DIR / 'console.log'
         log.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.Popen([str(python), str(HERE / 'web_app.py'), '--no-open'], cwd=HERE, start_new_session=True,
+        subprocess.Popen([str(python), '-X', 'utf8', str(HERE / 'web_app.py'), '--no-open'], cwd=HERE, start_new_session=True,
                          stdin=subprocess.DEVNULL, stdout=open(log, 'a'), stderr=subprocess.STDOUT)
     for _ in range(60):  # up to 15 s
         time.sleep(0.25)

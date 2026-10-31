@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import uuid
+import pipeline_runtime as pipeline
 from spherical import inject
 try:  # the legacy desktop window only; the web app works without Tk (portable Windows Python has none)
     import tkinter as tk
@@ -30,7 +31,7 @@ def executable(name):
     local = BASE / 'bin' / (name + suffix)
     return str(local) if local.exists() else shutil.which(name)
 
-def run(args, cancel=None):
+def _run(args, cancel=None):
     kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
     if cancel:
@@ -67,7 +68,7 @@ def _parse_clock(value):
     except (ValueError, AttributeError):
         return 0.0
 
-def run_progress(args, cancel, on_progress):
+def _run_progress(args, cancel, on_progress):
     """Run FFmpeg and report encoded media time without filling pipe buffers."""
     command = args[:1] + ['-progress', 'pipe:1', '-nostats', '-stats_period', '0.5'] + args[1:]
     kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
@@ -104,6 +105,21 @@ def run_progress(args, cancel, on_progress):
         raise RuntimeError('已停止，临时文件已清理，原片保留')
     if p.returncode:
         raise RuntimeError(''.join(errors)[-2400:])
+
+def run(args, cancel=None):
+    kind=pipeline.command_kind(args)
+    if kind:
+        with pipeline.slot(kind,cancel):return _run(args,cancel)
+    return _run(args,cancel)
+
+def run_progress(args,cancel,on_progress):
+    kind=pipeline.command_kind(args)
+    if kind:
+        with pipeline.slot(kind,cancel):return _run_progress(args,cancel,on_progress)
+    return _run_progress(args,cancel,on_progress)
+
+def digest(path,cancel=None,on_progress=None):
+    with pipeline.slot('hash',cancel):return _digest(path,cancel,on_progress)
 
 def update_progress(owner, **values):
     if not hasattr(owner, 'progress'):
@@ -152,12 +168,20 @@ def stamp(path):
             pass
     raise ValueError('文件名未找到有效年月日时分秒；请保留 DJI 时间戳或先修正文件名')
 
-def output_name(path, suffix, number, width):
+def output_sequence(path, number, width):
+    stem = Path(path).stem
+    # A bare recording timestamp has no separate sequence number.
+    if re.search(r'(?:^|[_-])20\d{6}[_-]\d{6}$', stem):
+        return f'{number:0{width}d}'
+    match = re.search(r'(?<!\d)(\d{1,10})$', stem)
+    return match.group(1) if match else f'{number:0{width}d}'
+
+def output_name(path, suffix, number, width, timestamp=None):
     if re.search(r'[<>:"/\\|?*\x00-\x1f{}]', suffix) or suffix.endswith(('.', ' ')):
         raise ValueError('后缀含有不可用于文件名的字符')
-    return f'{stamp(path)}{("_" + suffix) if suffix else ""}_{number:0{width}d}.mp4'
+    return f'{timestamp or stamp(path)}{("_" + suffix) if suffix else ""}_{output_sequence(path, number, width)}.mp4'
 
-def digest(path, cancel=None, on_progress=None):
+def _digest(path, cancel=None, on_progress=None):
     h = hashlib.sha256()
     total = Path(path).stat().st_size
     done = 0
@@ -231,7 +255,7 @@ def candidates(choice):
     return (['hevc_videotoolbox', 'libx265'] if platform.system() == 'Darwin'
             else ['hevc_nvenc', 'hevc_qsv', 'libx265'])
 
-def validate(src_info, target, cancel, on_progress=None):
+def validate(src_info, target, cancel, on_progress=None, mode='cpu', log=None):
     result = probe(target, cancel)
     a, b = video(src_info), video(result)
     if (a['width'], a['height']) != (b['width'], b['height']):
@@ -246,9 +270,15 @@ def validate(src_info, target, cancel, on_progress=None):
         raise ValueError('验证失败：时长不一致')
     if sum(s['codec_type'] == 'audio' for s in src_info['streams']) != sum(s['codec_type'] == 'audio' for s in result['streams']):
         raise ValueError('验证失败：音轨数量不一致')
-    command = [executable('ffmpeg'), '-v', 'error', '-xerror', '-i', str(target), '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-']
-    if on_progress: run_progress(command, cancel, on_progress)
-    else: run(command, cancel)
+    if mode not in ('gpu','cpu'): raise ValueError('无效的检查方式')
+    def check(hardware):
+        command = [executable('ffmpeg'), '-v', 'error', '-xerror']
+        command += ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] if hardware else ['-threads', '4']
+        command += ['-i', str(target), '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-']
+        if on_progress: run_progress(command, cancel, on_progress)
+        else: run(command, cancel)
+    check(mode=='gpu')
+    return mode
 
 def hidden_file(path, hidden=True):
     if os.name != 'nt': return
@@ -281,13 +311,16 @@ def recycle(record, manifest, cancel, mode='trash', fast=False, owner=None):
     if record.get('panorama') and not any('spherical' in str(s).lower() for s in video(probe(dst, cancel)).get('side_data_list', [])):
         raise ValueError('全景标记缺失，拒绝删除')
     if not fast:
-        if owner: update_progress(owner, phase='删除前完整播放检查', current_seconds=0)
+        if owner:
+            gpu_check = record.get('verification_mode', 'cpu') == 'gpu'
+            update_progress(owner, phase='删除前 GPU 检查' if gpu_check else '删除前 CPU 检查', current_seconds=0,
+                            engine_name='NVIDIA 视频解码' if gpu_check else 'CPU 解码', engine_kind='GPU' if gpu_check else 'CPU')
         if record.get('osv_export'):
             from osv_pipeline import validate_panorama, SIZES
-            validate_panorama(probe(src, cancel), dst, cancel, SIZES[record['osv_export']['resolution']])
+            validate_panorama(probe(src, cancel), dst, cancel, SIZES[record['osv_export']['resolution']], mode=record.get('verification_mode','cpu'))
         else:
             validate(probe(src, cancel), dst, cancel,
-                     (lambda seconds: update_progress(owner, current_seconds=seconds)) if owner else None)
+                     (lambda seconds: update_progress(owner, current_seconds=seconds)) if owner else None, mode=record.get('verification_mode','cpu'))
     if not record.get('video_copy') and dst.stat().st_size >= src.stat().st_size:
         raise ValueError('成品未变小，保留原片')
     if cancel.is_set():
@@ -494,9 +527,12 @@ class App(tk.Tk if tk else object):
                     inject(temp)
                     if not any('spherical' in str(x).lower() for x in video(probe(temp, self.cancel)).get('side_data_list', [])):
                         raise ValueError('全景标记验证失败')
-                self.events.put('正在完整解码验证成品…')
-                update_progress(self, phase='完整播放检查', current_seconds=0)
-                validate(info, temp, self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds))
+                self.events.put('正在完整解码验证成品（'+('GPU 快速检查' if getattr(self,'verification_mode','cpu')=='gpu' else 'CPU 严格检查')+'）…')
+                check_mode = getattr(self, 'verification_mode', 'cpu')
+                update_progress(self, phase='完整播放检查（GPU 快检）' if check_mode=='gpu' else '完整播放检查（CPU 严检）',
+                                current_seconds=0, engine_name='NVIDIA 视频解码' if check_mode=='gpu' else 'CPU 解码',
+                                engine_kind='GPU' if check_mode=='gpu' else 'CPU', checking_mode=check_mode)
+                checked_with = validate(info, temp, self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds), mode=check_mode)
                 if digest_progress(self, src, '确认原片未发生变化') != original_hash: raise ValueError('压缩期间原片发生变化，未保存成品')
                 # Exclusive creation via hard link prevents overwriting a concurrent file.
                 try:
@@ -512,7 +548,7 @@ class App(tk.Tk if tk else object):
                         dst.unlink()
                         raise
                 temp.unlink()
-                record = {'version': 2, 'source': str(src), 'output': str(dst), 'source_sha256': original_hash, 'output_sha256': digest_progress(self, dst, '校验并记录成品'), 'verified': True, 'deleted': False, 'engine': used, 'panorama': pano, 'video_copy': copy_video, 'source_state': file_state(src), 'output_state': file_state(dst)}
+                record = {'version': 2, 'verification_mode': checked_with, 'source': str(src), 'output': str(dst), 'source_sha256': original_hash, 'output_sha256': digest_progress(self, dst, '校验并记录成品'), 'verified': True, 'deleted': False, 'engine': used, 'panorama': pano, 'video_copy': copy_video, 'source_state': file_state(src), 'output_state': file_state(dst)}
                 manifest = dst.with_suffix('.mp4.dji.json'); save_record(manifest, record)
                 source_marker = src.with_suffix(src.suffix + '.dji.json')
                 if source_marker != manifest:
