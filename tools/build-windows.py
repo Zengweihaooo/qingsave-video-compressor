@@ -7,6 +7,7 @@ Needs (downloaded once, checksums verified by hand):
 
 Usage:
   python tools/build-windows.py <download-folder> <output.zip>
+  python tools/build-windows.py <existing 轻存-Windows folder> <output.zip>   (reuse its Python + FFmpeg)
 
 Layout of the package:
   轻存-Windows/启动轻存.cmd, 重新打开轻存页面.cmd, 退出轻存.cmd   background start / reopen page / safe quit
@@ -72,6 +73,8 @@ GUIDE = """轻存 · Windows 免安装版
 
 def build(downloads, output):
     downloads = Path(downloads)
+    if (downloads / 'runtime' / 'python' / 'python.exe').is_file():
+        return refresh(downloads, output)
     python_zip = next(downloads.glob('python-3.*-embed-amd64.zip'))
     ffmpeg_zip = next(downloads.glob('ffmpeg*.zip'))
     wheel = next(downloads.glob('[Ss]end2[Tt]rash-*.whl'))
@@ -112,6 +115,39 @@ def build(downloads, output):
             for path in sorted(root.rglob('*')):
                 archive.write(path, path.relative_to(root.parent))
     return output
+
+
+def write_package(root, output):
+    """Zip root/ (the 轻存-Windows folder) with UTF-8 names so Windows Explorer shows Chinese names."""
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        output.unlink()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+        for path in sorted(root.rglob('*')):
+            if path.name.startswith('._') or path.name == '.DS_Store':
+                continue
+            archive.write(path, Path(root.name) / path.relative_to(root))
+    return output
+
+
+def refresh(package, output):
+    """Rebuild from an existing 轻存-Windows folder: keep its Python and FFmpeg, replace code and commands.
+    Usage: python tools/build-windows.py <existing 轻存-Windows folder> <output.zip>"""
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp) / '轻存-Windows'
+        shutil.copytree(package / 'runtime', root / 'runtime')
+        app = root / 'app'
+        app.mkdir(parents=True)
+        shutil.copytree(package / 'app' / 'bin', app / 'bin')
+        for name in APP_FILES:
+            shutil.copy2(REPO / name, app / name)
+        for name in APP_DIRS:
+            shutil.copytree(REPO / name, app / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', 'java', 'openosv', 'sikulix-home'))
+        for name, args in COMMANDS.items():
+            (root / name).write_bytes(COMMAND.format(args=args).replace('\n', '\r\n').encode('ascii'))
+        (root / '使用说明.txt').write_bytes(('\ufeff' + GUIDE).replace('\n', '\r\n').encode('utf-8'))
+        return write_package(root, output)
 
 
 if __name__ == '__main__':
