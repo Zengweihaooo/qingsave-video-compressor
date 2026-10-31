@@ -152,10 +152,21 @@ def stamp(path):
             pass
     raise ValueError('文件名未找到有效年月日时分秒；请保留 DJI 时间戳或先修正文件名')
 
+def clip_number(path):
+    """The recording's own number, so ORG_002 becomes CMP_002: taken from a 轻存 name (_ORG_002 / _CMP_002)
+    or from the camera's counter (CAM_20261015172054_0002_D → 002). None when the name has neither."""
+    stem = Path(path).stem
+    found = re.search(r'_(?:ORG|CMP)_(\d+)(?=_|$)', stem, re.I)
+    if found:
+        return found.group(1)
+    found = re.search(r'(?<!\d)20\d{12}_(\d{3,4})(?=_|$)', stem)
+    return f'{int(found.group(1)):03d}' if found else None
+
 def output_name(path, suffix, number, width):
     if re.search(r'[<>:"/\\|?*\x00-\x1f{}]', suffix) or suffix.endswith(('.', ' ')):
         raise ValueError('后缀含有不可用于文件名的字符')
-    return f'{stamp(path)}{("_" + suffix) if suffix else ""}_{number:0{width}d}.mp4'
+    number = number if isinstance(number, str) else f'{number:0{width}d}'
+    return f'{stamp(path)}{("_" + suffix) if suffix else ""}_{number}.mp4'
 
 def digest(path, cancel=None, on_progress=None):
     h = hashlib.sha256()

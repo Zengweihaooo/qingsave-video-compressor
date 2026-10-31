@@ -323,12 +323,19 @@ def names(data):
     start, width = int(data['start']), int(data['width'])
     if start < 0 or not 1 <= width <= 10: raise ValueError('起始序号须非负，序号位数须为 1–10')
     paths = sorted(set(data['files']), key=sort_key)
-    items = []
+    items, taken = [], set()
     for index, path in enumerate(paths):
         directory = archive_directory(path, data.get('output') or None) if data.get('archive', True) else None
+        # Keep the clip's own number (ORG_002 → CMP_002); only unnumbered files use the running sequence.
+        number = c.clip_number(path) or start + index
+        name = c.output_name(path, data['suffix'], number, width) if path not in scan_dates else f'{scan_dates[path]}{("_" + data["suffix"]) if data["suffix"] else ""}_{start + index:0{width}d}.mp4'
+        base, extra = name[:-4], 2
+        while (str(directory), name) in taken:  # two different clips that would get the same name
+            name = f'{base}-{extra}.mp4'; extra += 1
+        taken.add((str(directory), name))
         items.append({
             'source': path,
-            'name': c.output_name(path, data['suffix'], start + index, width) if path not in scan_dates else f'{scan_dates[path]}{("_" + data["suffix"]) if data["suffix"] else ""}_{start + index:0{width}d}.mp4',
+            'name': name,
             'folder': directory.name if directory else '',
             'directory': str(directory) if directory else '',
             'size': Path(path).stat().st_size,

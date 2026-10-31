@@ -58,6 +58,7 @@ python tools/selftest.py
 - **改名可撤销**：`library.mark_originals` 每次改名写 `<根目录>/.qingsave/rename-log.jsonl`，同时更新 `*.dji.json` 压缩记录里的 `source`，`undo_last_mark` 反向恢复。
 - **路径一律用相对根目录**：同一块盘在 Windows（`H:\`）和 macOS（`/Volumes/...`）上结果一致；`.dji.json` 里的绝对路径是压缩时那台机器的，只按文件名匹配。
 - **平台**：所有模块在 Windows 便携 Python（无 tkinter）下必须能 import。不要在模块顶层用平台专属库；Linux 上 SD 面板隐藏（`SUPPORTED=False`）。
+- **编号一路沿用**：相机 `CAM_…_0002_D` → 导入 `…_ORG_002` → 压缩 `…_CMP_002`（`compressor.clip_number`）。没有编号的文件才用页面上的起始序号依次编；同名冲突时导入改用下一个空号，压缩加 `-2`。
 - **一个接一个**：用户要求移动和压缩都严格逐个文件处理（处理一个、校验一个、删一个），不要改回多张卡并行复制。
 - **码率**：Apple VideoToolbox 保持按目标码率（实测它的 `-q:v` 没有优势）；CPU 用 x265 CRF 28/25/22，NVIDIA 用 CQ 30/27/24 + lookahead + AQ，两者都以档位码率 1.5 倍为峰值上限；NVIDIA 参数被驱动拒绝时退回普通 VBR。
 

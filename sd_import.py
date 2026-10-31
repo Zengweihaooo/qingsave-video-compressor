@@ -267,10 +267,14 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
             folders[key] = find_storage_dir(month, day, [Path(target['mount'])]) or Path(target['mount']) / f'{month:02d}.{day:02d}'
         folder = folders[key]
         used = numbers.setdefault(str(folder), existing_numbers(folder))
-        number = max(used, default=0) + 1
         ext = Path(item['source']).suffix.lower()
-        while (folder / f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}").exists():
-            number += 1
+        own = c.clip_number(item['source'])  # camera counter: CAM_…_0002_D → ORG_002 (and later CMP_002)
+        number = int(own) if own else max(used, default=0) + 1
+        if (folder / f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}").exists() or (own and number in used and
+                any(i.get('dest') == str(folder / f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}") for i in items)):
+            number = max(used, default=0) + 1  # name already taken: fall back to the next free number
+            while (folder / f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}").exists():
+                number += 1
         used.add(number)
         name = f"{item['timestamp']}_{TAG}_{number:0{WIDTH}d}{ext}"
         item.update(status='pending', target=target['mount'], target_name=target['name'], folder=folder.name, name=name, dest=str(folder / name))

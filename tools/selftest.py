@@ -148,14 +148,17 @@ def test_sd(base):
         return plan
 
     plan = run('UUID-A')
-    check([i['name'] for i in plan['items']] == ['20261021_143025_ORG_005.mp4', '20261021_150000_ORG_006.mp4'], '沿用已有文件夹并接着编号（卡上 ._ 文件不导入）')
+    check([i['name'] for i in plan['items']] == ['20261021_143025_ORG_001.mp4', '20261021_150000_ORG_002.mp4'], '沿用已有文件夹，编号沿用相机原编号 0001→ORG_001（卡上 ._ 文件不导入）')
     check(not good.exists() and not (card_root / 'MISC/CAM_20261021143025_0001_D.LRF').exists(), '好视频移走、代理文件删除')
     check(broken.exists() and len(sd.job['corrupt']) == 1, '坏视频留在卡上等待确认')
-    check((ssd / '10.21 骑车/20261021_150000_ORG_006_LRF.mp4').exists(), '坏视频的 LRF 已存到固态硬盘')
+    check((ssd / '10.21 骑车/20261021_150000_ORG_002_LRF.mp4').exists(), '坏视频的 LRF 已存到固态硬盘')
     plan = run('UUID-B')  # same card, different volume id
     check(plan['items'][0]['status'] == 'copied' and len(list((ssd / '10.21 骑车').glob('*150000_ORG_*.mp4'))) == 2, '换了卷 ID 也不会重复复制')
     sd.remove_corrupt([e['id'] for e in sd.job['corrupt']], keep_ssd_copy=True)
-    check(not broken.exists() and (ssd / '10.21 骑车/20261021_150000_ORG_006.mp4').exists(), '确认后清卡，保留一份损坏原片')
+    check(not broken.exists() and (ssd / '10.21 骑车/20261021_150000_ORG_002.mp4').exists(), '确认后清卡，保留一份损坏原片')
+    imported = ssd / '10.21 骑车/20261021_143025_ORG_001.mp4'
+    names = w.names({'files': [str(imported)], 'start': 1, 'width': 3, 'suffix': 'CMP', 'archive': False})
+    check([n['name'] for n in names] == ['20261021_143025_CMP_001.mp4'], '压缩时编号跟着走：ORG_001 → CMP_001')
 
 
 def test_sd_resume(base):
