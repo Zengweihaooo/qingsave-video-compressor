@@ -168,7 +168,20 @@ def stamp(path):
             pass
     raise ValueError('文件名未找到有效年月日时分秒；请保留 DJI 时间戳或先修正文件名')
 
+def clip_number(path):
+    """The recording's own number, so ORG_002 becomes CMP_002: taken from a 轻存 name (_ORG_002 / _CMP_002)
+    or from the camera's counter (CAM_20261015172054_0002_D → 002). None when the name has neither."""
+    stem = Path(path).stem
+    found = re.search(r'_(?:ORG|CMP)_(\d+)(?=_|$)', stem, re.I)
+    if found:
+        return found.group(1)
+    found = re.search(r'(?<!\d)20\d{12}_(\d{3,4})(?=_|$)', stem)
+    return f'{int(found.group(1)):03d}' if found else None
+
 def output_sequence(path, number, width):
+    own = clip_number(path)
+    if own:
+        return own
     stem = Path(path).stem
     # A bare recording timestamp has no separate sequence number.
     if re.search(r'(?:^|[_-])20\d{6}[_-]\d{6}$', stem):

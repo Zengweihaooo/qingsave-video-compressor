@@ -22,9 +22,10 @@ import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-APP_FILES = ['web_app.py', 'launch.py', 'applog.py', 'compressor.py', 'sd_import.py', 'library.py', 'osv_pipeline.py',
+APP_FILES = ['web_app.py', 'temp_storage.py', 'processing_time.py', 'pipeline_runtime.py', 'launch.py', 'applog.py', 'compressor.py', 'sd_import.py', 'library.py', 'osv_pipeline.py',
              'dji_studio_export.py', 'spherical.py', '界面.html', '素材日历.html', 'requirements.txt', 'README.md', 'AGENTS.md']
 APP_DIRS = ['vendor', 'tools']
+PORTABLE_MARKER = 'All QingSave application records stay on the external SSD.\n'  # applog keeps data in ../QingSave-data
 
 # pythonw runs without a console window; launch.py starts the background server or finds the running one.
 COMMANDS = {
@@ -33,7 +34,7 @@ COMMANDS = {
     '退出轻存.cmd': ' --quit',
 }
 COMMAND = """@echo off
-start "" "%~dp0runtime\\python\\pythonw.exe" "%~dp0app\\launch.py"{args}
+start "" "%~dp0runtime\\python\\pythonw.exe" -X utf8 "%~dp0app\\launch.py"{args}
 """
 
 GUIDE = """轻存 · Windows 免安装版
@@ -57,7 +58,7 @@ GUIDE = """轻存 · Windows 免安装版
 - 压缩时「处理状态」里会写「正在使用：NVIDIA 显卡（GPU）」，如果显卡没用上，会写出原因（比如驱动太旧）。
 
 日志
-- 自动保存在 %APPDATA%\\QingSave\\logs\\：每天一个 .log（所有消息），events-年-月.jsonl（每个任务的编码器、大小、耗时）。
+- 自动保存在本文件夹的 QingSave-data\\logs\\（便携模式：记录跟着硬盘走，不留在 C 盘）：每天一个 .log（所有消息），events-年-月.jsonl（每个任务的编码器、大小、耗时）。
 - 页面上「打开日志文件夹」可以直接打开。
 
 功能
@@ -106,6 +107,7 @@ def build(downloads, output):
         assert (app / 'bin' / 'ffmpeg.exe').is_file() and (app / 'bin' / 'ffprobe.exe').is_file(), 'FFmpeg zip has no ffmpeg.exe / ffprobe.exe'
         for name, args in COMMANDS.items():
             (root / name).write_bytes(COMMAND.format(args=args).replace('\n', '\r\n').encode('ascii'))
+        (app / '.portable-data').write_text(PORTABLE_MARKER, encoding='utf8')
         (root / '使用说明.txt').write_bytes(('﻿' + GUIDE).replace('\n', '\r\n').encode('utf-8'))
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +148,7 @@ def refresh(package, output):
             shutil.copytree(REPO / name, app / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', 'java', 'openosv', 'sikulix-home'))
         for name, args in COMMANDS.items():
             (root / name).write_bytes(COMMAND.format(args=args).replace('\n', '\r\n').encode('ascii'))
+        (app / '.portable-data').write_text(PORTABLE_MARKER, encoding='utf8')
         (root / '使用说明.txt').write_bytes(('\ufeff' + GUIDE).replace('\n', '\r\n').encode('utf-8'))
         return write_package(root, output)
 
