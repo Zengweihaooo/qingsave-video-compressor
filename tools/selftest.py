@@ -199,6 +199,43 @@ def test_sd_resume(base):
     check(any('接着上次复制' in line for line in sd.job['logs']), '日志里记录了续拷')
 
 
+def run_queue(files, out, delete_mode):
+    data = {'files': [str(f) for f in files], 'start': 1, 'width': 3, 'suffix': 'CMP', 'archive': False, 'same': False,
+            'output': str(out), 'video': '中等压缩', 'audio': '中等压缩', 'engine': 'CPU（较慢）', 'pano': False,
+            'delete_mode': delete_mode, 'osv': {}, 'verification_mode': 'cpu', 'temporary_storage': False}
+    ids = w.enqueue(data)
+    for _ in range(600):
+        with w.task_condition:
+            mine = [t for t in w.tasks if t['id'] in ids]
+            if all(t['status'] not in ('pending', 'running') for t in mine):
+                return {t['source']: t for t in mine}
+        time.sleep(0.2)
+    raise RuntimeError('queue did not finish')
+
+
+def test_name_clash(base):
+    print('同名文件：先比哈希再处理')
+    root, out = base / 'clash', base / 'clash-out'
+    original = make(root, 'a/CAM_20261021120000_0001_D.MP4', 2)
+    backup = root / 'b/CAM_20261021120000_0001_D.MP4'
+    backup.parent.mkdir(parents=True); shutil.copy2(original, backup)
+    other = make(root, 'c/CAM_20261021120000_0001_D.MP4', 2)  # same name, different picture
+    result = run_queue([original, backup, other], out, 'permanent')
+    check(not original.exists() and (out / '20261021_120000_CMP_001.mp4').is_file(), '第一份正常压缩、校验后删原片')
+    check(not backup.exists() and '完全一样' in result[str(backup.resolve())]['message'], '内容一样的备份：比对哈希后删除')
+    check(not other.exists() and (out / '20261021_120000_CMP_001-2.mp4').is_file(), '同名但内容不同：改名 -2 后正常压缩')
+    again = make(root, 'd/CAM_20261021130000_0002_D.MP4', 2)
+    keep = shutil.copy2(again, root / 'd/copy.bin')
+    run_queue([again], out, 'keep')
+    check(again.exists() and (out / '20261021_130000_CMP_002.mp4').is_file(), '先压缩一次并保留原片')
+    result = run_queue([again], out, 'permanent')
+    check(not again.exists() and '完整性核对通过' in result[str(again.resolve())]['message'], '已压缩过：核对哈希和完整性后删除原片')
+    Path(keep).rename(again)  # put the same original back, now with a corrupted compressed copy
+    (out / '20261021_130000_CMP_002.mp4').write_bytes((out / '20261021_130000_CMP_002.mp4').read_bytes()[:5000])
+    result = run_queue([again], out, 'permanent')
+    check(again.exists() and result[str(again.resolve())]['status'] == 'failed', '已有压缩版损坏：不删原片、报错')
+
+
 if __name__ == '__main__':
     if not L.c.executable('ffmpeg') or not L.c.executable('ffprobe'):
         sys.exit('需要 FFmpeg：放进 bin/ 或加入 PATH')
@@ -209,5 +246,6 @@ if __name__ == '__main__':
         test_library(base)
         test_sd(base)
         test_sd_resume(base)
+        test_name_clash(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)

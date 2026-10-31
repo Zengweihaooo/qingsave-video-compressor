@@ -58,7 +58,8 @@ python tools/selftest.py
 - **改名可撤销**：`library.mark_originals` 每次改名写 `<根目录>/.qingsave/rename-log.jsonl`，同时更新 `*.dji.json` 压缩记录里的 `source`，`undo_last_mark` 反向恢复。
 - **路径一律用相对根目录**：同一块盘在 Windows（`H:\`）和 macOS（`/Volumes/...`）上结果一致；`.dji.json` 里的绝对路径是压缩时那台机器的，只按文件名匹配。
 - **平台**：所有模块在 Windows 便携 Python（无 tkinter）下必须能 import。不要在模块顶层用平台专属库；Linux 上 SD 面板隐藏（`SUPPORTED=False`）。
-- **编号一路沿用**：相机 `CAM_…_0002_D` → 导入 `…_ORG_002` → 压缩 `…_CMP_002`。`compressor.clip_number` 先认 `_ORG_/_CMP_` 编号和相机计数器，`output_sequence` 再退回「文件名末尾数字」，都没有才用页面起始序号。导入同名时改用下一个空号；压缩同一批出现同名会拒绝（不覆盖）。
+- **编号一路沿用**：相机 `CAM_…_0002_D` → 导入 `…_ORG_002` → 压缩 `…_CMP_002`。`compressor.clip_number` 先认 `_ORG_/_CMP_` 编号和相机计数器，`output_sequence` 再退回「文件名末尾数字」，都没有才用页面起始序号。导入同名时改用下一个空号。
+- **压缩同名先比哈希**（`web_app.resolve_clash`）：目标已存在 → 原片 SHA-256 与那份压缩记录一致就当作已压缩，走 `recycle` 完整核对后按删除设置处理原片（保留模式只标记）；不一致就改名 `-2` 正常压缩。同一批 / 队列里两份原片同名 → 等前一份处理完，哈希一致就删这份重复的（彻底删除模式才永久删，否则进回收站），不一致改名 `-2`。核对失败一律不删任何文件。
 - **一个接一个**：SD 导入严格逐个文件（复制一个、校验一个、删一个），不要改回多张卡并行复制。压缩后来按用户新要求改为可设置的流水线（见下文「GPU 检查与压缩流水线」），每个文件仍是压缩 → 校验 → 删除原片。
 - **码率**：Apple VideoToolbox 保持按目标码率（实测它的 `-q:v` 没有优势）；CPU 用 x265 CRF 28/25/22，NVIDIA 用 CQ 30/27/24 + lookahead + AQ，两者都以档位码率 1.5 倍为峰值上限；NVIDIA 参数被驱动拒绝时退回普通 VBR。
 
@@ -91,7 +92,7 @@ python tools/selftest.py
 - Windows 三个 CMD 入口和 launch.py 子进程均使用 -X utf8；web_app.py 也对重定向输出设置 UTF-8。
 
 ## 原编号保留
-- 用户要求：原文件末尾是 002，压缩后仍是 002。output_sequence 先用 clip_number（`_ORG_002`、相机 `CAM_…_0002_D`），再保留末尾独立数字及前导零；都没有才按起始序号/位数生成。日期时间本身不当作序号。预览和压缩命名统一调用 output_name，批次同名拒绝覆盖。
+- 用户要求：原文件末尾是 002，压缩后仍是 002。output_sequence 先用 clip_number（`_ORG_002`、相机 `CAM_…_0002_D`），再保留末尾独立数字及前导零；都没有才按起始序号/位数生成。日期时间本身不当作序号。预览和压缩命名统一调用 output_name，批次同名不再拒绝，改为按哈希核对（见上）。
 
 ## SSD 便携模式与无人值守任务
 - 用户要求离开后完成任务，视频和运行记录不留在电脑。D: Data 与 F: Weihao 是同一块 Realtek RTL9210 外接 USB SSD 的两个分区；C: 是内置 SanDisk。

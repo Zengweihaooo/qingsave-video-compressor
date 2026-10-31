@@ -379,7 +379,7 @@ def names(data):
 
 def public_tasks():
     with task_condition:
-        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode')} for item in tasks]
+        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after')} for item in tasks]
 
 def clear_finished_history():
     """Start a clean UI round without touching media or on-disk manifests."""
@@ -432,7 +432,9 @@ def dispatch_loop():
             elif not queue_paused:
                 sources={os.path.normcase(tasks_by_id['source']) for tasks_by_id in tasks if tasks_by_id['id'] in active_owners}
                 while len(active_owners)<pipeline.settings['jobs']:
-                    item=next((i for i in tasks if i['status']=='pending' and os.path.normcase(i['source']) not in sources),None)
+                    waiting={i['id'] for i in tasks if i['status'] in ('pending','running')}
+                    item=next((i for i in tasks if i['status']=='pending' and os.path.normcase(i['source']) not in sources
+                               and i.get('after') not in waiting),None)
                     if item is None:break
                     item.update(status='running',message='处理中')
                     item['verification_mode'] = item.get('verification_mode') or pipeline.settings['verification']
@@ -457,7 +459,92 @@ def process_task(item,owner):
             active_owners.pop(item['id'],None)
             task_condition.notify_all()
 
+def free_target(target):
+    """target-2.mp4, target-3.mp4 … the first name not on disk and not taken by the queue."""
+    target = Path(target)
+    with task_condition:
+        taken = {os.path.normcase(i['output']) for i in tasks}
+    for number in range(2, 1000):
+        candidate = target.with_name(f'{target.stem}-{number}{target.suffix}')
+        if not candidate.exists() and os.path.normcase(str(candidate)) not in taken:
+            return candidate
+    raise ValueError('找不到可用的文件名')
+
+def remove_duplicate(path, mode):
+    if mode == 'permanent':
+        Path(path).unlink()
+        return '已彻底删除这份重复的原片'
+    from send2trash import send2trash
+    send2trash(str(Path(path).resolve()))
+    return '这份重复的原片已移入回收站'
+
+def resolve_clash(item, owner):
+    """Same target name as another clip. Returns True when settled here, False to compress under a free name.
+    Nothing is deleted unless SHA-256 shows the content is already safe elsewhere."""
+    source, target = Path(item['source']), Path(item['output'])
+    mode = item['config'][3] if len(item['config']) > 3 else False
+    name = source.name
+
+    def finish(message):
+        with task_condition:
+            item.update(status='completed', message=message, kind=None)
+        owner.events.put(f'{name}：{message}')
+        applog.event('name_clash', source=item['source'], output=item['output'], result=message)
+        return True
+
+    def rename():
+        new = free_target(target)
+        owner.events.put(f'{name}：内容和同名的不一样，改用 {new.name} 正常压缩')
+        with task_condition:
+            item.update(output=str(new), kind=None, message='同名但内容不同，改名后压缩')
+        return False
+
+    manifest = target.with_suffix('.mp4.dji.json')
+    try:
+        record = json.loads(manifest.read_text(encoding='utf8'))
+    except (OSError, ValueError):
+        record = {}
+    if item.get('kind') == 'duplicate':
+        other = Path(item.get('duplicate_of') or '')
+        own = c.digest_progress(owner, source, '核对同名原片：计算这份的哈希')
+        if other.is_file() and os.path.normcase(str(other.resolve())) != os.path.normcase(str(source.resolve())):
+            same = own == c.digest_progress(owner, other, '核对同名原片：计算另一份的哈希')
+            kept = f'{other.name} 还在'
+        else:  # the other copy was compressed and removed: compare with what its record says
+            same = bool(record.get('verified')) and own == record.get('source_sha256') and target.is_file()
+            kept = f'它的压缩版 {target.name} 已校验'
+        if not same:
+            return rename()
+        update_progress(owner, phase='删除重复的原片')
+        return finish(f'和另一份内容完全一样（SHA-256 一致，{kept}），{remove_duplicate(source, mode)}')
+    # Target exists already: is it this very original, compressed earlier?
+    if not (target.is_file() and record.get('verified') and record.get('source_sha256')):
+        return rename()
+    if c.digest_progress(owner, source, '核对是否已压缩过：计算原片哈希') != record['source_sha256']:
+        return rename()
+    if not mode:
+        return finish(f'已经压缩过（原片哈希与 {target.name} 的记录一致），按设置保留原片')
+    check = dict(record, source=str(source), output=str(target), deleted=False)
+    result = c.recycle(check, manifest, owner.cancel, mode, owner=owner)  # full integrity check of the existing compressed file first
+    return finish(f'已经压缩过：{target.name} 完整性核对通过，{result}')
+
+def update_progress(owner, **values):
+    c.update_progress(owner, **values)
+
 def _process_task(item,owner):
+    if item.get('kind') in ('already_done', 'duplicate'):
+        try:
+            if resolve_clash(item, owner):
+                return
+        except Exception as error:
+            with task_condition:
+                if owner.cancel.is_set():
+                    item.update(status='interrupted' if exiting else 'cancelled',
+                                message='退出时中断，下次打开可继续' if exiting else '已取消，可重新加入')
+                else:
+                    item.update(status='failed', message=f'同名核对失败，未删除任何文件：{error}')
+            owner.events.put(f"{Path(item['source']).name}：{error}")
+            return
     failure, started = None, time.time()
     with task_condition:
         item['started_at'] = started
@@ -520,7 +607,7 @@ def storage_returned(entry):
 def snapshot_queue():
     with task_condition:
         return [{key: (list(item[key]) if key == 'config' else item.get(key))
-                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode')} for item in tasks]
+                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after')} for item in tasks]
 
 def queue_saver():
     last = None
@@ -557,6 +644,8 @@ def continue_queue():
                 record = json.loads(output.with_suffix('.mp4.dji.json').read_text(encoding='utf8'))
             except (OSError, ValueError):
                 record = {}
+            if item.get('kind') in ('already_done', 'duplicate') and source.is_file():
+                item['status'] = 'pending'; item['message'] = '继续核对同名文件'; resumed += 1; continue
             if output.is_file() and record.get('verified'):
                 item['status'] = 'completed'; item['message'] = '上次已完成并验证'; continue
             if output.exists():
@@ -662,17 +751,28 @@ def enqueue(data):
         reserved = {os.path.normcase(item['output']) for item in tasks if item['status'] in ('pending', 'running')}
         reserved.update(os.path.normcase(item['return_path']) for item in tasks if item.get('return_path'))
         reserved.update(os.path.normcase(entry['target']) for entry in storage.snapshot())
-        if any(target.exists() or source == target or os.path.normcase(str(target)) in reserved for source, target, _ in jobs):
-            raise ValueError('输出文件已存在或已在队列中，请修改序号或输出目录')
-        names_in_batch = [os.path.normcase(str(target)) for _, target, _ in jobs]
-        if len(names_in_batch) != len(set(names_in_batch)):
-            raise ValueError('保留原编号后出现同名目标，请修改后缀或输出目录；不会覆盖文件')
+        if any(source == target for source, target, _ in jobs):
+            raise ValueError('输出文件不能和原片是同一个文件')
+        # Same target name: decided later in the queue by SHA-256 instead of refusing the whole batch.
+        owners = {os.path.normcase(i['output']): i for i in tasks if i['status'] in ('pending', 'running', 'interrupted')}
         added = []
         for source, target, config in jobs:
             target.parent.mkdir(parents=True, exist_ok=True)
+            key = os.path.normcase(str(target))
+            clash, earlier = None, owners.get(key)
+            if earlier and os.path.normcase(earlier['source']) == os.path.normcase(str(source)):
+                continue  # this very file is already queued
+            if earlier or key in reserved:
+                clash = {'kind': 'duplicate', 'duplicate_of': earlier['source'] if earlier else '', 'after': earlier['id'] if earlier else ''}
+            elif target.exists():
+                clash = {'kind': 'already_done'}
             item = {'id': uuid.uuid4().hex, 'source': str(source), 'output': str(target), 'config': config,
                     'osv': dict(export_options), 'verification_mode': data.get('verification_mode') or pipeline.settings['verification'], 'temporary_storage': bool(data.get('temporary_storage', True)), 'source_size': source.stat().st_size,
                     'video': config[0], 'audio': config[1], 'status': 'pending', 'message': '等待处理'}
+            if clash:
+                item.update(clash, message='同名：等待核对哈希' if clash['kind'] == 'duplicate' else '目标已存在：等待核对是否已压缩过')
+            else:
+                owners[key] = item
             tasks.append(item); added.append(item['id'])
         tasks.sort(key=lambda item: sort_key(item['source']))
         queue_stopping = False; state['busy'] = True
