@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-APP_FILES = ['web_app.py', 'temp_storage.py', 'processing_time.py', 'pipeline_runtime.py', 'launch.py', 'applog.py', 'compressor.py', 'sd_import.py', 'library.py', 'osv_pipeline.py',
+APP_FILES = ['web_app.py', 'space.py', 'temp_storage.py', 'processing_time.py', 'pipeline_runtime.py', 'launch.py', 'applog.py', 'compressor.py', 'sd_import.py', 'library.py', 'osv_pipeline.py',
              'dji_studio_export.py', 'spherical.py', '界面.html', '素材日历.html', 'requirements.txt', 'README.md', 'AGENTS.md']
 APP_DIRS = ['vendor', 'tools']
 PORTABLE_MARKER = 'All QingSave application records stay on the external SSD.\n'  # applog keeps data in ../QingSave-data

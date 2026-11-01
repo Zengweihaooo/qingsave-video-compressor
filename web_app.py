@@ -21,6 +21,7 @@ import sd_import as sd
 import library
 import applog
 import temp_storage as storage
+import space
 import time
 import processing_time
 import pipeline_runtime as pipeline
@@ -379,7 +380,7 @@ def names(data):
 
 def public_tasks():
     with task_condition:
-        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after')} for item in tasks]
+        return [{key: item.get(key) for key in ('id', 'source', 'output', 'video', 'audio', 'osv', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after', 'estimated_size', 'raw_estimate', 'output_size')} for item in tasks]
 
 def clear_finished_history():
     """Start a clean UI round without touching media or on-disk manifests."""
@@ -584,13 +585,29 @@ def _process_task(item,owner):
                     worker.manifests.remove(str(manifest))
         else:
             item['status'] = 'failed'; item['message'] = failure or '失败，请查看日志后重试'
+        if item['status'] == 'completed':
+            item['output_size'] = (record.get('output_state') or {}).get('size')
         item['attempt_seconds'] = max(0, time.time() - started)
         item['elapsed_seconds'] = (item.get('elapsed_seconds') or 0) + item['attempt_seconds']
         item['started_at'] = None
         task_condition.notify_all()
     applog.event('compress', source=item['source'], output=item['output'], status=item['status'], message=item['message'],
                  engine=item.get('engine'), video=item['video'], audio=item['audio'], seconds=round(time.time() - started, 1),
-                 source_size=(record.get('source_state') or {}).get('size'), output_size=(record.get('output_state') or {}).get('size'))
+                 source_size=(record.get('source_state') or {}).get('size'), output_size=(record.get('output_state') or {}).get('size'),
+                 estimated_size=item.get('estimated_size'), raw_estimate=item.get('raw_estimate'))
+
+def space_summary(data):
+    """Drive space before / now / after the queue, plus what adding the current selection would do."""
+    with task_condition:
+        copies = [dict(item) for item in tasks if item['status'] != 'removed']
+    result = space.summary(copies, data.get('selection') or [], data.get('delete_mode', 'keep'))
+    with task_condition:
+        learned = {item['id']: item for item in copies if item.get('estimated_size')}
+        for item in tasks:
+            if item['id'] in learned and not item.get('estimated_size'):
+                item['estimated_size'] = learned[item['id']]['estimated_size']
+                item['raw_estimate'] = learned[item['id']].get('raw_estimate')
+    return result
 
 def storage_returned(entry):
     with task_condition:
@@ -607,7 +624,7 @@ def storage_returned(entry):
 def snapshot_queue():
     with task_condition:
         return [{key: (list(item[key]) if key == 'config' else item.get(key))
-                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after')} for item in tasks]
+                 for key in ('id', 'source', 'output', 'config', 'osv', 'video', 'audio', 'status', 'message', 'engine', 'return_path', 'temporary_storage', 'elapsed_seconds', 'attempt_seconds', 'source_size', 'verification_mode', 'kind', 'duplicate_of', 'after', 'estimated_size', 'raw_estimate', 'output_size')} for item in tasks]
 
 def queue_saver():
     last = None
@@ -877,6 +894,8 @@ class Handler(BaseHTTPRequestHandler):
                 while not worker.events.empty() and not DRAINER['on']: state['logs'].append(worker.events.get())
                 self.reply({'busy':state['busy'],'logs':state['logs'],'quick_delete_count':len(worker.manifests),
                             'progress':queue_progress() if tasks else {}, 'tasks':public_tasks(), 'temporary_storage':storage.snapshot()}); return
+            if self.path == '/space':
+                self.reply(space_summary(data)); return
             if self.path == '/pipeline':
                 if data:
                     with task_condition:

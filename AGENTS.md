@@ -45,7 +45,8 @@ python tools/selftest.py
 | `compressor.py` | FFmpeg 调用、码率规则（`encoding_args`、`QUALITY`）、校验、删除原片 |
 | `sd_import.py` | SD 卡检测（`diskutil`）、分盘计划、复制+读回校验、损坏视频处理 |
 | `library.py` | 素材库扫描：日期识别、原片判断、冲突检测、`_ORG` 改名与撤销、导出网页 |
-| `界面.html` | 压缩主界面（含 SD 卡面板） |
+| `界面.html` | 压缩主界面：顶部硬盘空间条，左侧「① 选择视频 / ② 处理队列 / 运行记录」标签页，右侧设置（用途预设 → 画质 → 保存与原片 → 预计效果，其余收进「更多设置」），桌面上整页一屏、各栏自己滚动；SD 卡导入是弹窗 |
+| `space.py` | 硬盘空间：开始前（现在 − 已完成的变化）/ 现在 / 队列完成后 / 再加入所选后；按编码器同样的目标码率估算成品大小，再用 events 日志里 `output_size / raw_estimate` 的中位数校正。回收站模式要清空回收站才腾出空间，单独显示 |
 | `素材日历.html` | 素材日历页面；在轻存里是实时模式，导出到硬盘根目录时是内嵌数据的静态模式（`/*__MODE__*/` 占位符） |
 | `osv_pipeline.py`、`dji_studio_export.py`、`spherical.py` | OSV 全景拼接（实验） |
 | `tools/selftest.py` | 端到端自测 |
@@ -80,6 +81,10 @@ python tools/selftest.py
 ## 临时桌面存储
 - temp_storage.py：空间不足时暂存桌面 QingSave-Temporary，后台每 30 秒尝试 SHA-256 校验移回；temporary-storage.json 持久化待移回记录。移回前保留原片。两个位置均不足时等待空间。
 - 队列保存 return_path/temporary_storage；UI 可关闭新任务的临时存储。压缩与移回通过 IO_LOCK 串行；暂存成品在移回前不加入快速删除列表。
+
+## 空间显示
+- `/space`（POST `{selection:[{source,video,audio}], delete_mode}`）：每次最多花 2.5 秒跑 ffprobe，没估完的显示「估算中」，结果按「路径+大小+mtime」缓存。任务的 `estimated_size` / `raw_estimate` 存进 queue.json，完成时写进 events，供以后校正。
+- SD 弹窗用 `/sd/plan` 已有的 free/total/size/planned 画「卡上可用 → 导入后」和「目标盘 → 导入后」。
 
 ## 时间显示
 - processing_time.py：当前阶段按实时进度估算；视频和队列总剩余时间按已完成同档位/编码器的视频大小和实际用时估算，冷启动显示正在估算。

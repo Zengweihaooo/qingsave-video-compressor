@@ -236,6 +236,27 @@ def test_name_clash(base):
     check(again.exists() and result[str(again.resolve())]['status'] == 'failed', '已有压缩版损坏：不删原片、报错')
 
 
+
+def test_space(base):
+    print('空间预估')
+    import space
+    root = base / 'space'
+    clip = make(root, 'a/CAM_20261022120000_0001_D.MP4', 3)
+    size = clip.stat().st_size
+    est, raw = space.estimate(clip, '中等压缩', '中等压缩')
+    check(raw and 0 < est <= size, '按目标码率估算压缩后大小')
+    mount = space.mount_of(str(clip), space.mounts())
+    task = {'source': str(clip), 'output': str(root / 'a/x_CMP_001.mp4'), 'status': 'pending', 'video': '中等压缩',
+            'audio': '中等压缩', 'config': ['中等压缩', '中等压缩', '自动选择', 'permanent', False], 'source_size': size}
+    drive = next(d for d in space.summary([task])['drives'] if d['mount'] == mount)
+    check(drive['queue_change'] == size - est, '彻底删除：完成后多出 原片 − 成品')
+    task['config'][3] = 'trash'
+    drive = next(d for d in space.summary([task])['drives'] if d['mount'] == mount)
+    check(drive['queue_change'] == -est and drive['trash_after'] == size, '回收站：先占用成品空间，清空回收站后才腾出原片')
+    result = space.summary([], [{'source': str(clip), 'video': '中等压缩', 'audio': '中等压缩'}], 'keep')
+    check(result['selection']['estimate'] == est and result['selection']['items'][str(clip)] == est, '所选视频的预估')
+
+
 if __name__ == '__main__':
     if not L.c.executable('ffmpeg') or not L.c.executable('ffprobe'):
         sys.exit('需要 FFmpeg：放进 bin/ 或加入 PATH')
@@ -247,5 +268,6 @@ if __name__ == '__main__':
         test_sd(base)
         test_sd_resume(base)
         test_name_clash(base)
+        test_space(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)
