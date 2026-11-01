@@ -115,3 +115,6 @@ python tools/selftest.py
 ## 失败原因与 LRF 命名
 - 队列失败不再只写「请查看日志」：`compressor.explain` 把 moov atom not found / Invalid data / 没有视频流翻译成「原片已损坏…原片已保留」；`load_queue` 启动时为旧的笼统失败项探测原片补上原因。
 - 相机代理 `…_ORG_006_LRF.mp4` 压缩后命名 `…_CMP_006_LRF.mp4`（`output_name` 保留 `_LRF`），不再和主片撞名变成 `CMP_006-2`。之前已生成的 `-2` 文件不改名。
+
+## 原片默认删除
+- 用户要求默认删除原片：「压缩并校验通过后，原片」默认「彻底删除」，选择通过 `/preferences` 存进数据目录 `preferences.json`，下次打开沿用（Dock app 每次端口不同，localStorage 记不住，所以存服务端）。删除仍要先通过完整校验，开始前仍弹确认。

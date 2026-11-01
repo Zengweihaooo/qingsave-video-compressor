@@ -904,6 +904,11 @@ class Handler(BaseHTTPRequestHandler):
                             'progress':queue_progress() if tasks else {}, 'tasks':public_tasks(), 'temporary_storage':storage.snapshot()}); return
             if self.path == '/space':
                 self.reply(space_summary(data)); return
+            if self.path == '/preferences':
+                prefs = {'delete_mode': 'permanent', **(applog.load_json('preferences.json', {}) or {})}  # default: delete originals once verified
+                if data.get('delete_mode') in ('keep', 'trash', 'permanent'):
+                    prefs['delete_mode'] = data['delete_mode']; applog.save_json('preferences.json', prefs)
+                self.reply(prefs); return
             if self.path == '/pipeline':
                 if data:
                     with task_condition:

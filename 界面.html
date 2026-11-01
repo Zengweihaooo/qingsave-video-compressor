@@ -165,7 +165,7 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
   <label class="check"><input type="checkbox" id="same" checked><span>保存在原片旁边</span></label>
   <label class="check"><input type="checkbox" id="archive"><span>放进对应日期文件夹（如「10.12 …」）</span></label>
   <div class="field" id="outputField" hidden><input id="output" type="text" placeholder="请选择保存位置" aria-label="输出文件夹"><button id="folder">浏览</button></div>
-  <label class="caption" for="delete_mode">压缩并校验通过后，原片</label><select id="delete_mode" aria-label="删除方式"><option value="keep">保留原片</option><option value="trash">移入回收站</option><option value="permanent">彻底删除（腾出空间最多）</option></select>
+  <label class="caption" for="delete_mode">压缩并校验通过后，原片</label><select id="delete_mode" aria-label="删除方式"><option value="keep">保留原片</option><option value="trash">移入回收站</option><option value="permanent" selected>彻底删除（腾出空间最多）</option></select>
   <p class="tiny" id="deleteHint" style="margin-top:6px"></p></div>
  <div class="sec"><h3>预计效果</h3><div class="plan" id="planBox">先在左侧选择视频</div></div>
  <details class="more"><summary data-i="chev">更多设置</summary>
@@ -286,7 +286,9 @@ let previewDebounce;for(let id of ['suffix','start','width'])$(id).oninput=()=>{
 function syncOutput(){$('outputField').hidden=$('same').checked}$('same').onchange=()=>{syncOutput();preview()};syncOutput();
 $('folder').onclick=async()=>{try{let v=await api('/pick',{kind:'folder'});if(v.value)$('output').value=v.value}catch(e){error(e)}};
 const deleteHints={keep:'原片保留，硬盘会多出压缩版的空间。',trash:'原片进回收站：要清空回收站后空间才会释放。',permanent:'校验通过后原片直接删除，空间立刻释放，无法从回收站找回。'};
-function syncDelete(){setText($('deleteHint'),deleteHints[$('delete_mode').value]);refreshSpace()}$('delete_mode').onchange=syncDelete;
+function syncDelete(){setText($('deleteHint'),deleteHints[$('delete_mode').value]+'会记住这个选择。');refreshSpace()}
+$('delete_mode').onchange=()=>{syncDelete();api('/preferences',{delete_mode:$('delete_mode').value}).catch(()=>{})};
+api('/preferences').then(p=>{if(p.delete_mode&&$('delete_mode').value!==p.delete_mode){$('delete_mode').value=p.delete_mode}syncDelete()}).catch(()=>{});
 
 /* scan */
 $('scanToggle').onclick=()=>{let d=$('scanDrawer');d.hidden=!d.hidden;$('scanToggle').setAttribute('aria-expanded',!d.hidden);$('scanToggle').classList.toggle('primary',!d.hidden);if(!d.hidden)$('libraryRoot').focus()};
