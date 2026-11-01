@@ -192,7 +192,19 @@ def output_sequence(path, number, width):
 def output_name(path, suffix, number, width, timestamp=None):
     if re.search(r'[<>:"/\\|?*\x00-\x1f{}]', suffix) or suffix.endswith(('.', ' ')):
         raise ValueError('后缀含有不可用于文件名的字符')
-    return f'{timestamp or stamp(path)}{("_" + suffix) if suffix else ""}_{output_sequence(path, number, width)}.mp4'
+    proxy = '_LRF' if re.search(r'_LRF$', Path(path).stem, re.I) else ''  # keep a camera proxy recognisable, not CMP_006-2
+    return f'{timestamp or stamp(path)}{("_" + suffix) if suffix else ""}_{output_sequence(path, number, width)}{proxy}.mp4'
+
+DAMAGED = (('moov atom not found', '原片已损坏（相机录制中断，缺少文件索引），无法压缩；原片已保留，可用 untrunc 修复'),
+           ('Invalid data found when processing input', '原片已损坏（读不出视频数据），无法压缩；原片已保留'),
+           ('没有找到可处理的主视频流', '原片里没有视频画面（多半是刚开始录就中断），无法压缩；原片已保留'))
+
+def explain(error):
+    """A plain reason for the queue, instead of 'see the log'."""
+    for marker, text in DAMAGED:
+        if marker in error:
+            return text
+    return error.strip().splitlines()[-1][:300] if error.strip() else None
 
 def _digest(path, cancel=None, on_progress=None):
     h = hashlib.sha256()
@@ -592,7 +604,9 @@ class App(tk.Tk if tk else object):
                 self.events.put(f'完成：{dst.name}；体积变化 {saving:+.1%}（正数为节省）')
                 if delete:
                     self.events.put(recycle(record, manifest, self.cancel, 'permanent' if delete == 'permanent' else 'trash', owner=self))
-            except Exception as e: self.events.put(f'{src.name}：{e}')
+            except Exception as e:
+                self.last_error = str(e)
+                self.events.put(f'{src.name}：{e}')
             finally:
                 if temp.exists(): temp.unlink()
                 if self.cancel.is_set():

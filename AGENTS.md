@@ -111,3 +111,7 @@ python tools/selftest.py
 - maintenance/setup-and-finish.py 在 SSD 后台继续队列并检查最终状态，mission-status.json 记录结果；系统保持唤醒但显示器可关闭。所有未完成任务改为原片目录输出，检查方式和删除选择保持用户设置。
 - 本次电脑工作文件迁到 maintenance/computer-files-backup；只在复制和哈希校验通过后清理原本机目录。不要把历史记录中的 C 路径误认为仍有文件。
 
+
+## 失败原因与 LRF 命名
+- 队列失败不再只写「请查看日志」：`compressor.explain` 把 moov atom not found / Invalid data / 没有视频流翻译成「原片已损坏…原片已保留」；`load_queue` 启动时为旧的笼统失败项探测原片补上原因。
+- 相机代理 `…_ORG_006_LRF.mp4` 压缩后命名 `…_CMP_006_LRF.mp4`（`output_name` 保留 `_LRF`），不再和主片撞名变成 `CMP_006-2`。之前已生成的 `-2` 文件不改名。

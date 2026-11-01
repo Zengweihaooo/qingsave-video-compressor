@@ -547,6 +547,7 @@ def _process_task(item,owner):
             owner.events.put(f"{Path(item['source']).name}：{error}")
             return
     failure, started = None, time.time()
+    owner.last_error = None
     with task_condition:
         item['started_at'] = started
         try: item['source_size'] = Path(item['source']).stat().st_size
@@ -584,7 +585,8 @@ def _process_task(item,owner):
                 if str(manifest) in worker.manifests:
                     worker.manifests.remove(str(manifest))
         else:
-            item['status'] = 'failed'; item['message'] = failure or '失败，请查看日志后重试'
+            reason = failure or getattr(owner, 'last_error', None)
+            item['status'] = 'failed'; item['message'] = (c.explain(reason) if reason else None) or '失败，请查看日志后重试'
         if item['status'] == 'completed':
             item['output_size'] = (record.get('output_state') or {}).get('size')
         item['attempt_seconds'] = max(0, time.time() - started)
@@ -646,6 +648,12 @@ def load_queue():
                 item['status'] = 'interrupted'; item['message'] = '上次没做完，等待继续'
             item['config'] = tuple(item.get('config') or ())
             tasks.append(item)
+    for item in saved:  # older runs only said "see the log": find out whether the original itself is broken
+        if item['status'] == 'failed' and item.get('message') == '失败，请查看日志后重试' and Path(item['source']).is_file():
+            try:
+                c.video(c.probe(item['source']))
+            except Exception as error:
+                item['message'] = c.explain(str(error)) or item['message']
     processing_time.restore(tasks)
     return sum(item['status'] == 'interrupted' for item in tasks)
 
