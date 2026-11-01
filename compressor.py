@@ -234,6 +234,15 @@ def short_error(error):
     lines = [line.strip() for line in str(error).splitlines() if line.strip()]
     return (lines[-1] if lines else str(error))[:180]
 
+GPU_SETUP_ERRORS = ('Device creation failed', 'No device available for decoder', 'Hardware device setup failed',
+                    'Failed to create', 'Cannot load nvcuda', 'Could not dynamically load CUDA')
+
+def gpu_decode_args():
+    return ['-hwaccel', 'videotoolbox'] if platform.system() == 'Darwin' else ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda']
+
+def gpu_decoder_name():
+    return 'Apple 视频解码' if platform.system() == 'Darwin' else 'NVIDIA 视频解码'
+
 def decode_args(engine, tuned=True):
     # Decode on the NVIDIA card too, so the CPU is not the bottleneck; FFmpeg falls back to
     # software decoding by itself when a stream is not supported.
@@ -286,12 +295,22 @@ def validate(src_info, target, cancel, on_progress=None, mode='cpu', log=None):
     if mode not in ('gpu','cpu'): raise ValueError('无效的检查方式')
     def check(hardware):
         command = [executable('ffmpeg'), '-v', 'error', '-xerror']
-        command += ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] if hardware else ['-threads', '4']
+        command += gpu_decode_args() if hardware else ['-threads', '4']
         command += ['-i', str(target), '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-']
         if on_progress: run_progress(command, cancel, on_progress)
         else: run(command, cancel)
-    check(mode=='gpu')
-    return mode
+    if mode == 'gpu':
+        try:
+            check(True)
+            return mode
+        except RuntimeError as error:
+            # The decoder could not even start (no such GPU on this machine): that says nothing
+            # about the file, so check it on the CPU instead, which is the stricter check anyway.
+            if cancel and cancel.is_set() or not any(text in str(error) for text in GPU_SETUP_ERRORS):
+                raise
+            if log: log('GPU 检查无法启动，改用 CPU 严格检查')
+    check(False)
+    return 'cpu'
 
 def hidden_file(path, hidden=True):
     if os.name != 'nt': return
@@ -327,7 +346,7 @@ def recycle(record, manifest, cancel, mode='trash', fast=False, owner=None):
         if owner:
             gpu_check = record.get('verification_mode', 'cpu') == 'gpu'
             update_progress(owner, phase='删除前 GPU 检查' if gpu_check else '删除前 CPU 检查', current_seconds=0,
-                            engine_name='NVIDIA 视频解码' if gpu_check else 'CPU 解码', engine_kind='GPU' if gpu_check else 'CPU')
+                            engine_name=gpu_decoder_name() if gpu_check else 'CPU 解码', engine_kind='GPU' if gpu_check else 'CPU')
         if record.get('osv_export'):
             from osv_pipeline import validate_panorama, SIZES
             validate_panorama(probe(src, cancel), dst, cancel, SIZES[record['osv_export']['resolution']], mode=record.get('verification_mode','cpu'))
@@ -543,9 +562,9 @@ class App(tk.Tk if tk else object):
                 self.events.put('正在完整解码验证成品（'+('GPU 快速检查' if getattr(self,'verification_mode','cpu')=='gpu' else 'CPU 严格检查')+'）…')
                 check_mode = getattr(self, 'verification_mode', 'cpu')
                 update_progress(self, phase='完整播放检查（GPU 快检）' if check_mode=='gpu' else '完整播放检查（CPU 严检）',
-                                current_seconds=0, engine_name='NVIDIA 视频解码' if check_mode=='gpu' else 'CPU 解码',
+                                current_seconds=0, engine_name=gpu_decoder_name() if check_mode=='gpu' else 'CPU 解码',
                                 engine_kind='GPU' if check_mode=='gpu' else 'CPU', checking_mode=check_mode)
-                checked_with = validate(info, temp, self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds), mode=check_mode)
+                checked_with = validate(info, temp, self.cancel, lambda seconds: update_progress(self, current_seconds=min(seconds, duration) if duration else seconds), mode=check_mode, log=self.events.put)
                 if digest_progress(self, src, '确认原片未发生变化') != original_hash: raise ValueError('压缩期间原片发生变化，未保存成品')
                 # Exclusive creation via hard link prevents overwriting a concurrent file.
                 try:

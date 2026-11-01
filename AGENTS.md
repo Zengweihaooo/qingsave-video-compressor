@@ -86,7 +86,7 @@ python tools/selftest.py
 - started_at 是本次运行开始时间，elapsed_seconds 累计尝试用时，attempt_seconds 本次完整处理用时；后两项随 queue.json 持久化。旧任务从 events 日志恢复用时。等待移回空间不计入压缩预计时间。
 
 ## 用户最新要求：GPU 检查与压缩流水线
-- 用户明确选择 CPU 或 GPU，不强制 GPU 后再 CPU 复核；GPU 检查失败保留原片并报错。删除前按匹配记录 verification_mode 复核，不悄悄切换 CPU。
+- 用户明确选择 CPU 或 GPU，不强制 GPU 后再 CPU 复核；GPU 检查失败保留原片并报错。GPU 检查在 macOS 用 VideoToolbox 解码、其他平台用 CUDA；若硬件解码器根本无法启动（如 Mac 上没有 CUDA），改用 CPU 严格检查而不是判失败（曾因此在 Mac 上白压了 17 个文件）。删除前按匹配记录 verification_mode 复核，不悄悄切换 CPU。
 - 新要求覆盖此前压缩必须逐个的偏好：压缩调度支持 1–4 个文件流水线，最多 3 路编码、2 路检查。默认三路文件、一编码、一检查、GPU 检查；SD 导入仍逐个。pipeline_runtime.py 管理编码/检查并发和单路哈希，pipeline-settings.json 保存设置。
 - active_owners 按任务 ID 管理取消/停止，重复原片不同时处理；temp_storage 按盘预留空间，防止并行超额占用。
 - Windows 三个 CMD 入口和 launch.py 子进程均使用 -X utf8；web_app.py 也对重定向输出设置 UTF-8。
