@@ -1,110 +1,144 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>轻存 · 视频压缩</title>
 <style>
-:root{--ink:#1f332a;--sub:#6f7d72;--faint:#9aa59c;--line:#e3e8e0;--bg:#f3f5f0;--card:#fff;--soft:#f6f8f3;--accent:#285b42;--accent2:#347653;--good:#2f7a52;--goodbg:#e5f2ea;--warn:#a46a1f;--warnbg:#fbf1dc;--bad:#a24938;--badbg:#f9e9e5;--used:#9fb3a3;
-font-family:Inter,-apple-system,'PingFang SC','Microsoft YaHei',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;flex-direction:column}
+:root{color-scheme:light;
+--bg:#f6f6f7;--panel:#ffffff;--raise:#ffffff;--sunk:#f1f1f3;--hover:rgba(0,0,0,.035);--line:rgba(17,17,26,.09);--line2:rgba(17,17,26,.055);
+--ink:#17171c;--sub:#5f5f6b;--faint:#9696a1;--accent:#1d6b52;--accent-soft:rgba(29,107,82,.1);--btn:#17171c;--btn-ink:#fff;
+--good:#1d7a57;--good-soft:rgba(29,122,87,.1);--warn:#a8640f;--warn-soft:rgba(198,128,30,.12);--bad:#b03a2e;--bad-soft:rgba(176,58,46,.09);
+--used:#c9c9d1;--freed:#3fa37a;--taken:#d99a3d;--shadow:0 1px 2px rgba(16,16,24,.04),0 1px 1px rgba(16,16,24,.03);--pop:0 24px 60px -12px rgba(16,16,24,.28),0 0 0 1px rgba(16,16,24,.06);
+--ease:cubic-bezier(.2,.8,.2,1);--r:10px;--rs:7px;
+font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Segoe UI','Microsoft YaHei',system-ui,sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;font-feature-settings:'tnum' 1}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;
+--bg:#0d0e10;--panel:#151619;--raise:#1d1f23;--sunk:#101113;--hover:rgba(255,255,255,.04);--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.05);
+--ink:#ececf0;--sub:#a0a0ab;--faint:#6c6c77;--accent:#4cc79a;--accent-soft:rgba(76,199,154,.12);--btn:#ececf0;--btn-ink:#121214;
+--good:#5fd0a3;--good-soft:rgba(95,208,163,.12);--warn:#e7a955;--warn-soft:rgba(231,169,85,.13);--bad:#f07c6e;--bad-soft:rgba(240,124,110,.12);
+--used:#3a3b42;--freed:#3fae83;--taken:#c98d38;--shadow:none;--pop:0 24px 60px -12px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.08)}}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg)}
 button,input,select{font:inherit;color:inherit}
-button{cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 13px;white-space:nowrap}button:hover:not(:disabled){background:#eef4eb}button:disabled{opacity:.45;cursor:not-allowed}
-.primary{background:var(--accent);color:#fff;border-color:var(--accent)}.primary:hover:not(:disabled){background:var(--accent2)}
-.danger{color:var(--bad);border-color:#ecd0c8}.ghost{border-color:transparent;background:transparent}
-input[type=text],input[type=number],select{width:100%;min-width:0;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
-.muted{color:var(--sub);font-size:12px}.tiny{font-size:11px;color:var(--faint)}b{font-weight:600}
-p{margin:0;line-height:1.6}
+svg.i{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+button{display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;border:1px solid var(--line);background:var(--raise);border-radius:var(--rs);padding:6px 12px;white-space:nowrap;font-weight:500;box-shadow:var(--shadow);transition:background .15s var(--ease),border-color .15s,transform .1s var(--ease),opacity .15s}
+button:hover:not(:disabled){background:var(--sunk)}button:active:not(:disabled){transform:scale(.97)}button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.primary{background:var(--btn);color:var(--btn-ink);border-color:transparent}.primary:hover:not(:disabled){background:var(--btn);opacity:.88}
+.danger{color:var(--bad)}.ghost{border-color:transparent;background:transparent;box-shadow:none}.ghost:hover:not(:disabled){background:var(--hover)}
+input[type=text],input[type=number],select{width:100%;min-width:0;background:var(--sunk);border:1px solid var(--line);border-radius:var(--rs);padding:6px 9px;transition:border-color .15s,background .15s}
+input:focus,select:focus{border-color:var(--accent);background:var(--panel);outline:none}
+.muted{color:var(--sub);font-size:12px}.tiny{font-size:11.5px;color:var(--faint);line-height:1.55}b,strong{font-weight:600}
+p{margin:0;line-height:1.6}.spacer{flex:1}
 /* top bar */
-.top{display:flex;align-items:center;gap:14px;padding:10px 20px;background:#fafbf8;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.brand{display:flex;gap:9px;align-items:center;font-size:18px;font-weight:700;margin-right:6px}.logo{background:var(--accent);color:#fff;border-radius:9px;padding:4px 9px;font-size:15px}
-.nav{display:flex;gap:4px}.nav a{padding:6px 12px;border-radius:8px;text-decoration:none;color:var(--sub)}.nav a.on{background:var(--goodbg);color:var(--accent);font-weight:600}.nav a:hover{background:#eef4eb}
-.spacer{flex:1}.top .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#sdBadge{font-weight:600;color:var(--accent)}
+.top{display:flex;align-items:center;gap:18px;padding:0 20px;height:52px;background:var(--panel);border-bottom:1px solid var(--line);position:relative;z-index:2}
+.brand{display:flex;gap:9px;align-items:center;font-size:15px;font-weight:650;letter-spacing:.2px}.brand svg{width:22px;height:22px}
+.nav{display:flex;gap:2px;height:100%}.nav a{display:flex;align-items:center;padding:0 12px;text-decoration:none;color:var(--sub);font-weight:500;position:relative;transition:color .15s}.nav a:hover{color:var(--ink)}.nav a.on{color:var(--ink)}.nav a.on::after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.top .acts{display:flex;gap:6px;align-items:center}#sdBadge{color:var(--accent);font-weight:600}#sdBadge:empty{display:none}
 /* storage strip */
-.strip{display:flex;gap:12px;padding:12px 20px 0;overflow-x:auto}
-.drive{flex:1 1 260px;min-width:250px;max-width:460px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.strip{display:flex;gap:10px;padding:14px 20px 0;overflow-x:auto}
+.drive{flex:1 1 280px;min-width:260px;max-width:480px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow);animation:rise .35s var(--ease) both}
 .drive-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline}.drive-head b{font-size:13px}
-.bar{position:relative;height:12px;border-radius:6px;background:#edf1ea;overflow:hidden;margin:7px 0 6px;display:flex}
-.bar i{display:block;height:100%}.bar .u{background:var(--used)}.bar .f{background:repeating-linear-gradient(45deg,#6fbf8f,#6fbf8f 4px,#9ad4b0 4px,#9ad4b0 8px)}.bar .a{background:repeating-linear-gradient(45deg,#e0a54a,#e0a54a 4px,#efc787 4px,#efc787 8px)}
-.bar .tick{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);opacity:.55}
-.flow{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:12px;color:var(--sub)}.flow strong{color:var(--ink);font-size:13px}.flow .arrow{color:var(--faint)}
-.delta{font-weight:600;font-size:12px;padding:1px 6px;border-radius:5px}.delta.up{color:var(--good);background:var(--goodbg)}.delta.down{color:var(--warn);background:var(--warnbg)}
-.legend{display:flex;gap:10px;font-size:11px;color:var(--faint);margin-top:4px;flex-wrap:wrap}.legend i{display:inline-block;width:10px;height:8px;border-radius:2px;margin-right:4px;vertical-align:0}
-.saved{flex:0 0 220px;background:var(--accent);color:#fff;border-radius:12px;padding:10px 14px;display:flex;flex-direction:column;justify-content:center;gap:2px}.saved .big{font-size:22px;font-weight:700;letter-spacing:-.5px}.saved .muted{color:#cfe3d6}
+.bar{position:relative;height:6px;border-radius:3px;background:var(--sunk);box-shadow:inset 0 0 0 1px var(--line2);overflow:visible;margin:10px 0 9px;display:flex}
+.bar i{display:block;height:100%;transition:width .7s var(--ease)}.bar i:first-child{border-radius:3px 0 0 3px}.bar .u{background:var(--used)}.bar .f{background:var(--freed)}.bar .a{background:var(--taken)}
+.bar .tick{position:absolute;top:-3px;bottom:-3px;width:1.5px;background:var(--ink);opacity:.6;border-radius:1px;transition:left .7s var(--ease)}
+.flow{display:flex;gap:5px 7px;align-items:baseline;flex-wrap:wrap;font-size:12px;color:var(--sub)}.flow strong{color:var(--ink);font-size:13px}.flow .arrow{color:var(--faint)}
+.delta{font-weight:600;font-size:11.5px;padding:0 6px;border-radius:5px;line-height:18px}.delta.up{color:var(--good);background:var(--good-soft)}.delta.down{color:var(--warn);background:var(--warn-soft)}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--faint);margin-top:7px;flex-wrap:wrap}.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:-0.5px}
+.saved{flex:0 0 230px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:1px;box-shadow:var(--shadow);animation:rise .35s .05s var(--ease) both}.saved .big{font-size:26px;font-weight:650;letter-spacing:-.8px;color:var(--good);line-height:1.2}
+.skeleton{height:62px;border-radius:var(--r);background:linear-gradient(90deg,var(--panel) 25%,var(--sunk) 50%,var(--panel) 75%);background-size:200% 100%;animation:shimmer 1.4s linear infinite;border:1px solid var(--line)}
 /* workspace */
-.work{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px;padding:12px 20px 16px;min-height:0}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-height:0}
+.work{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 352px;gap:10px;padding:10px 20px 16px;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;min-height:0;box-shadow:var(--shadow)}
 @media(min-width:1001px){.work{height:calc(100vh - var(--chrome,190px));grid-template-rows:minmax(0,1fr);flex:none}.panel{overflow:hidden}.panel.side{overflow:auto}}
-.tabs{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line)}
-.tab{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:9px 14px;color:var(--sub)}.tab:hover:not(:disabled){background:transparent;color:var(--ink)}.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
-.count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#edf1ea;font-size:11px;margin-left:5px;line-height:18px;text-align:center;color:var(--sub)}.tab.on .count{background:var(--goodbg);color:var(--accent)}
-.pane{display:none;flex:1;min-height:0;flex-direction:column}.pane.on{display:flex}
-.bar-tools{display:flex;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.scroll{flex:1;overflow:auto;min-height:120px}
-.foot{display:flex;justify-content:space-between;gap:10px;padding:9px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--sub);flex-wrap:wrap}
+.tabs{position:relative;display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--line);align-items:center;min-height:44px}
+.tab{border:0;border-radius:0;background:transparent;box-shadow:none;padding:12px 12px;color:var(--sub);font-weight:500}.tab:hover:not(:disabled){background:transparent;color:var(--ink)}.tab:active:not(:disabled){transform:none}.tab.on{color:var(--ink)}
+.ink{position:absolute;bottom:-1px;height:2px;background:var(--ink);border-radius:2px;transition:left .3s var(--ease),width .3s var(--ease)}
+.count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:var(--sunk);font-size:11px;line-height:18px;text-align:center;color:var(--sub);font-weight:600;transition:background .2s,color .2s}.tab.on .count{background:var(--ink);color:var(--panel)}.count.alert{background:var(--bad-soft);color:var(--bad)}
+.pane{display:none;flex:1;min-height:0;flex-direction:column}.pane.on{display:flex;animation:fade .22s var(--ease)}
+.bar-tools{display:flex;gap:6px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line2);flex-wrap:wrap}
+.scroll{flex:1;overflow:auto;min-height:120px;scroll-behavior:smooth}
+.foot{display:flex;justify-content:space-between;gap:10px;padding:9px 14px;border-top:1px solid var(--line2);font-size:12px;color:var(--sub);flex-wrap:wrap}
 /* rows */
-.file{display:flex;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid #eef1ec}.file:hover{background:#fbfcfa}
-.file .icon{width:28px;height:28px;flex:none;display:grid;place-items:center;background:#f1f5ec;border-radius:7px;color:#7d936d;font-size:12px}
-.file .detail{min-width:0;flex:1}.filename{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:13px}
-.rename{color:var(--sub);font-size:11px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.est{font-size:11px;color:var(--good);white-space:nowrap;text-align:right;min-width:110px}
-.queue-actions{display:flex;gap:5px;align-items:center;flex:none}.queue-actions button{padding:3px 8px;font-size:11px}.queue-actions .x{border:0;color:var(--faint);padding:3px 6px}
-.quality-select{width:auto;max-width:110px;padding:3px 5px;font-size:11px}
-.task-status{font-size:11px;padding:2px 8px;border-radius:10px;background:#edf1e9;color:#60705b;white-space:nowrap}.task-status.running{background:#e2f0d9;color:#356044}.task-status.failed,.task-status.cancelled{background:var(--badbg);color:var(--bad)}.task-status.completed{background:var(--goodbg);color:var(--good)}.task-status.interrupted{background:var(--warnbg);color:var(--warn)}
-.empty{margin:18px;padding:40px 12px;text-align:center;border:1.5px dashed #c9d8c2;border-radius:12px;background:#fafcf7}.empty.drag{border-color:var(--accent);background:#eef6ea}.empty strong{display:block;font-size:16px;margin:6px 0}.empty .film{font-size:30px;color:#81a26e}
+.file{display:flex;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line2);transition:background .15s}.file:hover{background:var(--hover)}.file.enter{animation:rise .3s var(--ease) both}
+.file .icon{width:28px;height:28px;flex:none;display:grid;place-items:center;background:var(--sunk);border-radius:6px;color:var(--sub)}
+.file .detail{min-width:0;flex:1}.filename{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550;font-size:13px}
+.rename{color:var(--faint);font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.est{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right;min-width:120px}.est b{color:var(--good);font-weight:600}
+.queue-actions{display:flex;gap:5px;align-items:center;flex:none}.queue-actions button{padding:3px 9px;font-size:12px}.queue-actions .x{border:0;box-shadow:none;background:transparent;color:var(--faint);padding:4px}.queue-actions .x:hover{color:var(--bad);background:var(--bad-soft)}
+.quality-select{width:auto;max-width:110px;padding:3px 6px;font-size:12px}
+.task-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--sub);white-space:nowrap;min-width:64px}.task-status::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.task-status.running{color:var(--ink)}.task-status.running::before{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:pulse 1.6s infinite}.task-status.failed,.task-status.cancelled{color:var(--bad)}.task-status.failed::before,.task-status.cancelled::before{background:var(--bad)}.task-status.completed::before{background:var(--good)}.task-status.interrupted{color:var(--warn)}.task-status.interrupted::before{background:var(--warn)}
+.empty{margin:20px;padding:46px 16px;text-align:center;border:1px dashed var(--line);border-radius:var(--r);transition:border-color .2s,background .2s,transform .2s var(--ease)}.empty.drag{border-color:var(--accent);background:var(--accent-soft);transform:scale(.99)}.empty strong{display:block;font-size:15px;margin:10px 0 4px}.empty .glyph{width:40px;height:40px;margin:0 auto;border-radius:10px;background:var(--sunk);display:grid;place-items:center;color:var(--sub)}.empty .glyph svg{width:20px;height:20px}
 /* scan drawer */
-.drawer{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--soft)}.drawer[hidden]{display:none}
-.scan-grid{display:grid;grid-template-columns:1fr 90px auto auto;gap:8px}.library-days{width:100%;height:120px;margin-top:8px}#days option:disabled{color:#9ca39b}
+.drawer{padding:12px 14px;border-bottom:1px solid var(--line2);background:var(--sunk);display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s var(--ease)}.drawer[hidden]{display:none}
+.scan-grid{display:grid;grid-template-columns:1fr 84px auto auto;gap:6px}.library-days{width:100%;height:120px;margin-top:8px}#days option:disabled{color:var(--faint)}
 /* status (queue) */
-.status-box{padding:12px 14px;border-bottom:1px solid var(--line);display:grid;gap:9px}
-.progress-label{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--sub)}.progress-label b{color:var(--ink)}
-.meter{height:8px;background:#edf1e9;border-radius:8px;overflow:hidden;margin-top:4px}.meter span{display:block;height:100%;width:0;background:#6f9a62;transition:width .25s}
-.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--soft);border:1px solid var(--line);color:var(--sub)}.chip b{color:var(--ink)}
-.tag{font-size:11px;background:#eef4e9;padding:3px 8px;color:#5f7a4e;border-radius:6px;white-space:nowrap}
-.note{padding:9px 12px;border-radius:8px;background:#f8f6ed;color:#866f45;font-size:12px;line-height:1.6}
-#resumeBar{background:var(--warnbg);color:#7a5d22}#resumeBar[hidden],.note[hidden]{display:none}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#6f7d6a;background:var(--soft);font-size:11px;line-height:1.7;margin:0;padding:12px 14px}
+.status-box{padding:14px;border-bottom:1px solid var(--line2);display:grid;gap:12px}
+.progress-label{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--sub)}.progress-label b{color:var(--ink);font-weight:600}
+.meter{height:4px;background:var(--sunk);border-radius:4px;overflow:hidden;margin-top:6px;box-shadow:inset 0 0 0 1px var(--line2)}.meter span{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;transition:width .6s var(--ease);position:relative;overflow:hidden}
+.busy .meter span::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:sweep 1.8s ease-in-out infinite}
+.chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0;border:1px solid var(--line2);border-radius:var(--rs);overflow:hidden}.chips>*{box-shadow:inset -1px -1px 0 var(--line2)}.chip{background:var(--panel);padding:7px 10px;font-size:11px;color:var(--faint);display:flex;flex-direction:column}.chip b{color:var(--ink);font-size:13px;font-weight:550;margin-top:1px}
+.tag{font-size:12px;color:var(--sub);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}.tag::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--faint)}.tag.live::before{background:var(--accent);animation:pulse 1.6s infinite}
+.note{padding:10px 12px;border-radius:var(--rs);background:var(--sunk);color:var(--sub);font-size:12px;line-height:1.6;border:1px solid var(--line2)}
+#resumeBar{background:var(--warn-soft);color:var(--ink);border-color:transparent}#resumeBar[hidden],.note[hidden]{display:none}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--sub);background:transparent;font:11.5px/1.75 ui-monospace,'SF Mono',Menlo,Consolas,monospace;margin:0;padding:14px 16px}
 #logs{flex:1;overflow:auto}
 /* side */
-.side{overflow:auto}.side>.sec{padding:13px 16px;border-bottom:1px solid var(--line)}.sec h3{font-size:12px;color:var(--sub);font-weight:600;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
-.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.preset{padding:8px 6px;text-align:center;white-space:normal}.preset b{display:block;font-size:12px}.preset small{display:block;color:var(--faint);font-size:10px;margin-top:2px}.preset.active{border-color:#5e8050;background:#f0f6ea;box-shadow:inset 0 0 0 1px #5e8050}
-.seg{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg+.seg{margin-top:6px}.choice{position:relative;text-align:center;padding:6px 2px;cursor:pointer;border-left:1px solid var(--line);font-size:12px}.choice:first-child{border-left:0}.choice input{position:absolute;opacity:0;pointer-events:none}.choice:has(input:checked){background:var(--accent);color:#fff}.choice small{display:block;font-size:9.5px;opacity:.7}.choice:focus-within{outline:2px solid var(--accent2);outline-offset:-2px}
-.seg-label{font-size:11px;color:var(--faint);margin:8px 0 4px}
-.check{display:flex;gap:8px;align-items:flex-start;line-height:1.5;font-size:12px;margin-top:8px;cursor:pointer}.check input{accent-color:var(--accent);margin-top:2px}
+.side{overflow:auto}.side>.sec{padding:16px 18px;border-bottom:1px solid var(--line2)}.sec h3{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);font-weight:600;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}.sec h3 .tiny{text-transform:none;letter-spacing:0;font-weight:400}
+.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.preset{flex-direction:column;align-items:flex-start;padding:8px 10px;white-space:normal;text-align:left;gap:1px}.preset b{font-size:12.5px}.preset small{color:var(--faint);font-size:11px;font-weight:400}.preset.active{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.seg{position:relative;display:grid;grid-template-columns:repeat(4,1fr);background:var(--sunk);border-radius:var(--rs);padding:2px;border:1px solid var(--line2)}.seg+.seg{margin-top:6px}
+.seg .thumb{position:absolute;top:2px;bottom:2px;left:2px;border-radius:5px;background:var(--raise);box-shadow:0 1px 3px rgba(0,0,0,.12),0 0 0 1px var(--line);transition:transform .28s var(--ease);pointer-events:none}
+.choice{position:relative;z-index:1;text-align:center;padding:5px 2px;cursor:pointer;font-size:12px;color:var(--sub);transition:color .2s;border-radius:5px}.choice input{position:absolute;opacity:0;pointer-events:none}.choice:has(input:checked){color:var(--ink);font-weight:600}.choice:focus-within{outline:2px solid var(--accent);outline-offset:-1px}.choice small{display:none}
+.seg-label{font-size:11.5px;color:var(--sub);margin:12px 0 5px;display:flex;justify-content:space-between}.seg-label span{color:var(--faint)}
+.check{display:flex;gap:9px;align-items:flex-start;line-height:1.5;font-size:12.5px;margin-top:8px;cursor:pointer}.check input{accent-color:var(--ink);margin-top:2px}
 .field{display:flex;gap:6px;margin-top:8px}.field[hidden]{display:none}
-.plan{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.7}.plan .big{font-size:15px;font-weight:700}.plan .good{color:var(--good)}.plan .warn{color:var(--warn)}
-.cta{position:sticky;bottom:0;background:var(--card);padding:12px 16px;border-top:1px solid var(--line);display:grid;gap:8px}.cta .primary{padding:11px;font-size:15px}
-#error{color:var(--bad);font-size:12px;line-height:1.5}#error:empty{display:none}
-details.more>summary{cursor:pointer;padding:12px 16px;font-size:13px;font-weight:600;color:var(--sub);list-style:none;border-bottom:1px solid var(--line)}details.more>summary::before{content:'▸ ';}details.more[open]>summary::before{content:'▾ '}
-details.more .sec{padding:12px 16px;border-bottom:1px solid var(--line)}label.caption{font-size:11px;color:var(--faint);display:block;margin:8px 0 4px}
-.fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px}.example{margin-top:8px;padding:7px 9px;background:#f4f7ef;color:#678050;border-radius:7px;font-size:11px;overflow-wrap:anywhere}
+.plan{font-size:12px;line-height:1.7;color:var(--sub)}.plan .big{font-size:20px;font-weight:650;letter-spacing:-.5px;color:var(--ink);display:block;margin:2px 0}.plan .good{color:var(--good);font-weight:500}.plan .warn{color:var(--warn);font-weight:500}
+.cta{position:sticky;bottom:0;background:var(--panel);padding:12px 18px 14px;border-top:1px solid var(--line);display:grid;gap:8px;margin-top:auto}.cta .primary{padding:10px;font-size:14px;font-weight:600}
+#error{color:var(--bad);font-size:12px;line-height:1.5;animation:fade .2s}#error:empty{display:none}
+details.more>summary{cursor:pointer;padding:13px 18px;font-size:12.5px;font-weight:500;color:var(--sub);list-style:none;border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:6px;transition:color .15s}details.more>summary:hover{color:var(--ink)}details.more>summary::-webkit-details-marker{display:none}details.more>summary svg{transition:transform .25s var(--ease)}details.more[open]>summary svg{transform:rotate(90deg)}details.more[open] .sec{animation:fade .25s var(--ease)}
+details.more .sec{padding:14px 18px;border-bottom:1px solid var(--line2)}label.caption{font-size:11.5px;color:var(--sub);display:block;margin:10px 0 4px}
+.fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px}.example{margin-top:8px;padding:7px 9px;background:var(--sunk);color:var(--sub);border-radius:var(--rs);font:11.5px/1.6 ui-monospace,'SF Mono',Menlo,Consolas,monospace;overflow-wrap:anywhere}
 #hwInfo div{margin:2px 0}
-table.levels{width:100%;font-size:11px;border-collapse:collapse}table.levels td,table.levels th{padding:4px 3px;border-bottom:1px solid #eef1ec;text-align:left}
+table.levels{width:100%;font-size:11.5px;border-collapse:collapse}table.levels td,table.levels th{padding:5px 3px;border-bottom:1px solid var(--line2);text-align:left}table.levels th{color:var(--faint);font-weight:500}
 /* modal */
-.modal{position:fixed;inset:0;background:rgba(20,30,25,.38);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;z-index:50;overflow:auto}.modal[hidden]{display:none}
-.modal-box{position:relative;width:min(760px,100%);background:#fff;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.22);padding:20px 22px}.modal-close{position:absolute;top:10px;right:12px;border:0;background:transparent;font-size:22px;color:var(--sub)}
-.modal-box .title{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-right:36px}.modal-box h2{font-size:16px;margin:0;flex:1}
-.modal-box .files .file{padding:8px 4px}.space-list{display:grid;gap:8px;margin-top:10px}.space-list .drive{max-width:none;min-width:0}
-.bottom{display:flex;gap:8px;margin-top:14px}.bottom .primary{flex:1;padding:10px}
-#sdLogs{max-height:150px;overflow:auto;border-radius:8px;margin-top:10px}#sdLogs[hidden]{display:none}
-.toast{position:fixed;bottom:20px;left:20px;z-index:9999;padding:12px 14px;background:var(--accent);color:#fff;border-radius:9px}
-@media(max-width:1000px){.work{grid-template-columns:minmax(0,1fr)}.tabs{overflow-x:auto}.tabs .tag{display:none}.scroll{max-height:60vh}.strip{flex-wrap:wrap}.saved{flex:1 1 100%}.drive{max-width:none}}
-@media(max-width:560px){.file{flex-wrap:wrap}.file .detail{flex-basis:calc(100% - 40px)}.queue-actions{margin-left:38px}.drive{min-width:0}.top,.strip,.work{padding-left:12px;padding-right:12px}.scan-grid{grid-template-columns:1fr 1fr}.est{display:none}.presets{grid-template-columns:1fr}}
+.modal{position:fixed;inset:0;background:rgba(8,8,12,.32);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:7vh 16px;z-index:50;overflow:auto;animation:fade .2s var(--ease)}.modal[hidden]{display:none}
+.modal-box{position:relative;width:min(720px,100%);background:var(--panel);border-radius:14px;box-shadow:var(--pop);padding:22px 24px;animation:pop .28s var(--ease)}.modal-close{position:absolute;top:14px;right:14px;border:0;background:transparent;box-shadow:none;padding:5px;color:var(--faint)}.modal-close:hover:not(:disabled){color:var(--ink);background:var(--hover)}
+.modal-box .title{display:flex;align-items:center;gap:12px;margin-bottom:8px;padding-right:36px}.modal-box h2{font-size:16px;font-weight:650;margin:0;flex:1}
+.modal-box .files .file{padding:9px 2px}.space-list{display:grid;gap:8px;margin-top:12px}.space-list .drive{max-width:none;min-width:0;box-shadow:none;background:var(--sunk)}
+.bottom{display:flex;gap:8px;margin-top:16px}.bottom .primary{flex:1;padding:9px}
+#sdLogs{max-height:150px;overflow:auto;border-radius:var(--rs);margin-top:12px;background:var(--sunk)}#sdLogs[hidden]{display:none}
+details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:10px}
+/* toasts */
+.toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;display:grid;gap:8px;justify-items:center;pointer-events:none}
+.toast{background:var(--btn);color:var(--btn-ink);padding:9px 14px;border-radius:9px;font-size:12.5px;box-shadow:var(--pop);animation:toast .3s var(--ease) both;max-width:min(560px,92vw)}.toast.out{animation:toastOut .25s var(--ease) both}.toast.bad{background:var(--bad);color:#fff}
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite;display:inline-block}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes toast{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(6px)}}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+@media(max-width:1000px){.work{grid-template-columns:minmax(0,1fr)}.tabs{overflow-x:auto}.tabs .tag{display:none}.scroll{max-height:60vh}.strip{flex-wrap:wrap}.saved{flex:1 1 100%}.drive{max-width:none}.top{height:auto;flex-wrap:wrap;padding:10px 16px;gap:10px}.nav{height:auto}.nav a{padding:6px 10px}.nav a.on::after{bottom:-2px}}
+@media(max-width:560px){.file{flex-wrap:wrap}.file .detail{flex-basis:calc(100% - 40px)}.queue-actions{margin-left:40px}.drive{min-width:0}.top,.strip,.work{padding-left:12px;padding-right:12px}.scan-grid{grid-template-columns:1fr 1fr}.est{display:none}.presets{grid-template-columns:1fr}}
 </style>
-<header class="top"><div class="brand"><span class="logo">◈</span>轻存</div>
+<header class="top"><div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="currentColor"/><path d="M7 15.5 12 8l5 7.5" stroke="var(--panel)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 17.5h7" stroke="var(--panel)" stroke-width="2" stroke-linecap="round"/></svg>轻存</div>
 <nav class="nav"><a class="on" href="/">视频压缩</a><a href="/library">素材日历与整理</a></nav><span class="spacer"></span>
-<div class="acts"><button id="sdOpen">▤ SD 卡导入 <span id="sdBadge"></span></button><button id="openLogs" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><button id="quitApp" class="danger" hidden>退出轻存</button></div></header>
+<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
 
-<section class="strip" id="spaceStrip" aria-label="硬盘空间"><div class="drive"><div class="muted">正在读取硬盘空间…</div></div></section>
+<section class="strip" id="spaceStrip" aria-label="硬盘空间" aria-busy="true"><div class="skeleton" style="flex:1 1 280px;max-width:480px"></div><div class="skeleton" style="flex:0 0 230px"></div></section>
 
 <main class="work">
 <section class="panel">
- <nav class="tabs" role="tablist"><button class="tab on" data-tab="add" role="tab">① 选择视频<span class="count" id="count">0</span></button><button class="tab" data-tab="queue" role="tab">② 处理队列<span class="count" id="queueCount">0</span></button><button class="tab" data-tab="log" role="tab">运行记录</button><span class="spacer"></span><span class="tag" id="phase" style="align-self:center">等待开始</span></nav>
+ <nav class="tabs" role="tablist"><button class="tab on" data-tab="add" role="tab">选择视频 <span class="count" id="count">0</span></button><button class="tab" data-tab="queue" role="tab">处理队列 <span class="count" id="queueCount">0</span></button><button class="tab" data-tab="log" role="tab">运行记录</button><span class="ink" id="tabInk"></span><span class="spacer"></span><span class="tag" id="phase">等待开始</span></nav>
 
  <div class="pane on" id="pane-add">
-  <div class="bar-tools"><button class="primary" id="add">＋ 选择视频</button><button id="scanToggle" aria-expanded="false">▦ 按日期扫描素材库</button><button id="link" title="拖进来的视频是复制品；要保存到原目录或删除原片，先关联原片所在文件夹">关联原片文件夹</button><span class="spacer"></span><button class="ghost" id="clearSel" hidden>清空选择</button></div>
+  <div class="bar-tools"><button class="primary" id="add" data-i="plus">选择视频</button><button id="scanToggle" data-i="calendar" aria-expanded="false">按日期扫描</button><button id="link" class="ghost" data-i="link" title="拖进来的视频是复制品；要保存到原目录或删除原片，先关联原片所在文件夹">关联原片文件夹</button><span class="spacer"></span><button class="ghost" id="clearSel" hidden>清空选择</button></div>
   <div class="drawer" id="scanDrawer" hidden>
    <div class="scan-grid"><input id="libraryRoot" type="text" value="E:\" aria-label="素材库位置"><input id="scanYear" type="number" min="2000" max="2100" value="2026" aria-label="年份"><button id="libraryBrowse">浏览</button><button class="primary" id="scan">扫描</button></div>
    <select id="days" class="library-days" multiple aria-label="可压缩日期"></select>
    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><button id="addDays">加入选中日期</button><button id="selectAllDays">全选</button><span class="muted" id="scanStatus">识别「10.12 xx」这类日期文件夹和 CAM_2026… 文件名，双击日期直接加入。</span></div>
   </div>
   <div class="scroll" id="addScroll"><div id="files" aria-label="待加入的视频"></div>
-   <div class="empty" id="empty"><div class="film">▤</div><strong>把视频拖到这里</strong><p class="muted">或点「选择视频」，支持 MP4、MOV、MKV、OSV。视频只在本机处理，不上传。</p><button class="primary" id="choose" style="margin-top:14px">选择本地视频</button></div></div>
+   <div class="empty" id="empty"><div class="glyph" data-i="film"></div><strong>把视频拖到这里</strong><p class="muted">或点「选择视频」，支持 MP4、MOV、MKV、OSV。视频只在本机处理，不上传。</p><button id="choose" style="margin-top:16px">选择本地视频</button></div></div>
   <div class="foot"><span id="total">尚未添加视频</span><span>保留原文件编号 · 每个视频可单独改档位</span></div>
  </div>
 
@@ -116,7 +150,7 @@ table.levels{width:100%;font-size:11px;border-collapse:collapse}table.levels td,
    <div class="chips" id="timing"></div>
    <div id="activeStages" class="note" hidden style="white-space:pre-line"></div>
   </div>
-  <div class="bar-tools"><button id="pause" disabled>本个完成后暂停</button><button id="resume" disabled>继续队列</button><button id="stop" class="danger" disabled>停止全部并清理</button><span class="spacer"></span><button id="clearHistory" disabled>清空已结束任务</button></div>
+  <div class="bar-tools"><button id="pause" data-i="pause" disabled>本个完成后暂停</button><button id="resume" data-i="play" disabled>继续队列</button><span class="spacer"></span><button id="clearHistory" class="ghost" disabled>清空已结束</button><button id="stop" class="ghost danger" data-i="stop" disabled>全部停止</button></div>
   <div class="scroll" id="taskList" aria-label="后台任务队列"></div>
  </div>
 
@@ -124,9 +158,9 @@ table.levels{width:100%;font-size:11px;border-collapse:collapse}table.levels td,
 </section>
 
 <aside class="panel side">
- <div class="sec"><h3>用途 <span class="tiny">一键设好画质和声音</span></h3><div class="presets" id="presets"></div>
-  <div class="seg-label">视频画质</div><div class="seg" id="video"></div><div class="seg-label">声音</div><div class="seg" id="audio"></div>
-  <p class="tiny" style="margin-top:6px">档位在加入时绑定；左侧每个视频可单独修改。</p></div>
+ <div class="sec"><h3>用途 <span class="tiny">一键设好画质与声音</span></h3><div class="presets" id="presets"></div>
+  <div class="seg-label">视频画质 <span id="videoHint"></span></div><div class="seg" id="video"></div><div class="seg-label">声音 <span id="audioHint"></span></div><div class="seg" id="audio"></div>
+  <p class="tiny" style="margin-top:6px">左侧没单独改过的视频会跟着这里变。</p></div>
  <div class="sec"><h3>保存与原片</h3>
   <label class="check"><input type="checkbox" id="same" checked><span>保存在原片旁边</span></label>
   <label class="check"><input type="checkbox" id="archive"><span>放进对应日期文件夹（如「10.12 …」）</span></label>
@@ -134,9 +168,9 @@ table.levels{width:100%;font-size:11px;border-collapse:collapse}table.levels td,
   <label class="caption" for="delete_mode">压缩并校验通过后，原片</label><select id="delete_mode" aria-label="删除方式"><option value="keep">保留原片</option><option value="trash">移入回收站</option><option value="permanent">彻底删除（腾出空间最多）</option></select>
   <p class="tiny" id="deleteHint" style="margin-top:6px"></p></div>
  <div class="sec"><h3>预计效果</h3><div class="plan" id="planBox">先在左侧选择视频</div></div>
- <details class="more"><summary>更多设置</summary>
+ <details class="more"><summary data-i="chev">更多设置</summary>
   <div class="sec"><h3>文件名</h3><div class="fields"><div><label class="caption" for="suffix">时间后的文字</label><input id="suffix" type="text" value="CMP"></div><div><label class="caption" for="start">无编号时起始</label><input id="start" type="number" min="0" value="1"></div><div><label class="caption" for="width">位数</label><input id="width" type="number" min="1" max="10" value="3"></div></div><div class="example" id="example">命名示例：08.22/20260921_143025_CMP_001.mp4</div></div>
-  <div class="sec"><h3>编码器 <button id="hwRecheck" class="ghost" style="padding:2px 6px;font-size:11px">重新检测</button></h3><div id="hwInfo" class="note" style="background:#f2f6ef;color:#4f6b45">正在检测这台电脑能用的编码方式…</div>
+  <div class="sec"><h3>编码器 <button id="hwRecheck" class="ghost" style="padding:2px 6px;font-size:11px;text-transform:none;letter-spacing:0">重新检测</button></h3><div id="hwInfo" class="note">正在检测这台电脑能用的编码方式…</div>
    <select id="engine" aria-label="硬件加速" style="margin-top:8px"><option>自动选择</option><option>NVIDIA RTX 3080</option><option>Intel 核显</option><option>Apple M1 / M1 Pro</option><option>CPU（较慢）</option></select>
    <label class="check"><input type="checkbox" id="pano"><span>保留 360° 全景视角 <span class="tiny">（已拼接的 2:1 全景 MP4）</span></span></label></div>
   <div class="sec"><h3>检查与并行</h3>
@@ -155,19 +189,20 @@ table.levels{width:100%;font-size:11px;border-collapse:collapse}table.levels td,
 </aside>
 </main>
 
-<div id="sdModal" class="modal" hidden><div class="modal-box" id="sdCard"><button class="modal-close" id="sdClose" title="收起窗口（导入会在后台继续）">×</button>
+<div id="sdModal" class="modal" hidden><div class="modal-box" id="sdCard"><button class="modal-close" id="sdClose" data-i="x" title="收起窗口（导入会在后台继续）" aria-label="关闭"></button>
  <div class="title"><h2>SD 卡导入到固态硬盘</h2><span class="tag" id="sdTag">自动检测中</span></div>
  <p class="muted">逐个文件：复制 → 读回校验 → 删除卡上原片。按拍摄日期放进「MM.DD」文件夹，优先存 Data，放不下自动换盘。同名 LRF / THM 代理文件不复制，原片校验通过后一并删除。</p>
  <div id="sdCards" class="files" style="margin-top:10px"></div>
  <div id="sdSpace" class="space-list"></div>
  <div id="sdTargets" class="tiny" style="margin-top:6px"></div>
- <details style="margin-top:8px"><summary class="muted" style="cursor:pointer">放到哪些文件夹</summary><div id="sdPlan" class="files"></div><div class="example" id="sdExample">命名示例：Data/10.21/20261021_143025_ORG_001.mp4</div></details>
+ <details class="plain"><summary>放到哪些文件夹</summary><div id="sdPlan" class="files"></div><div class="example" id="sdExample">命名示例：Data/10.21/20261021_143025_ORG_001.mp4</div></details>
  <label class="check"><input type="checkbox" id="sdEject" checked><span>全部成功后自动推出 SD 卡</span></label>
  <div id="sdProgress" hidden></div>
  <div class="bottom"><button class="primary" id="sdGo" disabled>确认移动</button><button id="sdRefresh">重新检测</button><button id="sdStop" hidden>停止</button></div>
- <div id="sdCorrupt" class="note" style="background:var(--badbg);color:var(--bad);margin-top:12px" hidden><b>损坏的视频</b><p style="margin-top:4px">这些 MP4 读不出来（通常是录制时没电或强行拔卡）。能用的 LRF 低清版已经复制到固态硬盘（文件名带 _LRF）。确认后删除卡上的损坏原片和 LRF，以及固态硬盘上的损坏副本；固态硬盘上的 LRF 保留。</p><div id="sdCorruptList" class="files"></div><label class="check"><input type="checkbox" id="sdKeepBroken"><span>保留固态硬盘上的损坏原片（只留一份，以后可尝试修复）</span></label><div style="margin-top:8px"><button class="primary" id="sdRemoveCorrupt">确认移除损坏文件</button></div></div>
+ <div id="sdCorrupt" class="note" style="background:var(--bad-soft);color:var(--ink);border-color:transparent;margin-top:12px" hidden><b>损坏的视频</b><p style="margin-top:4px">这些 MP4 读不出来（通常是录制时没电或强行拔卡）。能用的 LRF 低清版已经复制到固态硬盘（文件名带 _LRF）。确认后删除卡上的损坏原片和 LRF，以及固态硬盘上的损坏副本；固态硬盘上的 LRF 保留。</p><div id="sdCorruptList" class="files"></div><label class="check"><input type="checkbox" id="sdKeepBroken"><span>保留固态硬盘上的损坏原片（只留一份，以后可尝试修复）</span></label><div style="margin-top:8px"><button class="primary" id="sdRemoveCorrupt">确认移除损坏文件</button></div></div>
  <pre id="sdLogs" hidden></pre>
 </div></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
 (async()=>{try{let h=await (await fetch('/health')).json();let b=document.getElementById('quitApp');if(!h.can_quit)return;b.hidden=false;
@@ -177,8 +212,15 @@ b.disabled=true;b.textContent='正在安全退出…';try{await fetch('/quit',{m
 document.body.innerHTML='<div style="font-family:system-ui;max-width:520px;margin:120px auto;text-align:center;color:#21362e"><h2>轻存已退出</h2><p style="color:#7d897f">没做完的任务已保存，下次打开会提示继续。可以关闭这个页面了；下次双击「启动轻存」再打开。</p></div>'}}catch(e){}})();
 </script>
 <script>
-const $=id=>document.getElementById(id);let files=[],fileOptions={},estimates={},busy=false,previewVersion=0,scanResult=null,lastTasks=[],spaceTimer=null,spaceBusy=false;const token='__TOKEN__';
+const $=id=>document.getElementById(id);let files=[],fileOptions={},busy=false,previewVersion=0,scanResult=null,spaceTimer=null,spaceBusy=false,lastSpace=null;const selRows=new Map(),token='__TOKEN__';
 const isMac=/Mac/.test(navigator.platform);if(isMac)$('libraryRoot').value='/Volumes/Data';
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* icons: 24px line set, drawn with currentColor */
+const ICON={plus:'<path d="M12 5v14M5 12h14"/>',card:'<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M10 3v4M13 3v4"/>',doc:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',power:'<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',calendar:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',film:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',pause:'<path d="M9 6v12M15 6v12"/>',play:'<path d="M8 5.5v13l10-6.5z"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',chev:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',alert:'<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',drive:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'};
+function ic(name){return `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]||''}</svg>`}
+document.querySelectorAll('[data-i]').forEach(e=>e.insertAdjacentHTML('afterbegin',ic(e.dataset.i)));
+
 async function requestApi(path,data={}){let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':token},body:JSON.stringify(data)});let v=await r.json();if(!r.ok)throw Error(v.error||'操作失败');return v}
 let pickerPending=false;
 async function api(path,data={}){
@@ -187,151 +229,195 @@ async function api(path,data={}){
   pickerPending=true;
   const controls=['folder','libraryBrowse','add','choose','match','link'].map(id=>$(id)).filter(Boolean).map(button=>({button,disabled:button.disabled}));
   controls.forEach(({button})=>button.disabled=true);
-  const note=document.createElement('div');note.className='toast';note.setAttribute('role','status');note.textContent='已打开选择窗口，请在弹出的窗口中选择或取消…';document.body.append(note);
+  const note=toast('已打开选择窗口，请在弹出的窗口中选择或取消…',{sticky:true});
   try{return await requestApi(path,data)}
-  finally{pickerPending=false;controls.forEach(({button,disabled})=>button.disabled=disabled);note.remove()}
+  finally{pickerPending=false;controls.forEach(({button,disabled})=>button.disabled=disabled);note.close()}
 }
+function toast(text,{bad=false,sticky=false,ms=3200}={}){let t=el('div','toast'+(bad?' bad':''),text);t.setAttribute('role','status');$('toasts').append(t);let close=()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)};if(!sticky)setTimeout(close,ms);return {close}}
 function error(e){$('error').textContent=e.message||e}
 function size(n){n=Number(n)||0;let a=Math.abs(n);return (n<0?'−':'')+(a>=1e12?(a/1e12).toFixed(2)+' TB':a>=1e9?(a/1e9).toFixed(a>=1e11?0:1)+' GB':(a/1e6).toFixed(0)+' MB')}
 function clock(seconds){seconds=Math.max(0,Math.floor(Number(seconds)||0));let h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;return (h?h.toString().padStart(2,'0')+':':'')+m.toString().padStart(2,'0')+':'+s.toString().padStart(2,'0')}
 function el(tag,cls,text){let e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+function setText(node,text){if(node.textContent!==text)node.textContent=text}
+/* counts a byte value up/down to its new number instead of jumping */
+function tweenSize(node,to,prefix=''){let from=Number(node.dataset.v);node.dataset.v=to;if(reduceMotion||!isFinite(from)||from===to){node.textContent=prefix+size(to);return}let t0=performance.now(),d=650;let step=t=>{let k=Math.min(1,(t-t0)/d),e=1-Math.pow(1-k,3);node.textContent=prefix+size(from+(to-from)*e);if(k<1&&node.dataset.v==to)requestAnimationFrame(step)};requestAnimationFrame(step)}
+async function withBusy(button,fn){if(button.dataset.busy)return;button.dataset.busy=1;let html=button.innerHTML;button.disabled=true;button.innerHTML='<span class="spin"></span>'+button.textContent;try{return await fn()}finally{delete button.dataset.busy;button.innerHTML=html;button.disabled=false}}
 
-/* tabs */
-function showTab(name){document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.tab===name));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+name));try{localStorage.setItem('qs-tab',name)}catch(e){}}
+/* tabs with a sliding underline */
+function moveInk(){let on=document.querySelector('.tab.on'),ink=$('tabInk');if(!on)return;ink.style.left=on.offsetLeft+12+'px';ink.style.width=on.offsetWidth-24+'px'}
+function showTab(name){document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('on',t.dataset.tab===name);t.setAttribute('aria-selected',t.dataset.tab===name)});document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+name));moveInk();try{localStorage.setItem('qs-tab',name)}catch(e){}}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
-function fitChrome(){document.documentElement.style.setProperty('--chrome',(document.querySelector('.top').offsetHeight+$('spaceStrip').offsetHeight+30)+'px')}addEventListener('resize',fitChrome);
+function fitChrome(){document.documentElement.style.setProperty('--chrome',(document.querySelector('.top').offsetHeight+$('spaceStrip').offsetHeight+26)+'px');moveInk()}addEventListener('resize',fitChrome);
 
-/* quality */
+/* quality: segmented controls with a moving thumb */
 const LEVELS=['压缩较猛','中等压缩','压缩较轻','保留原片质量'];
-for(let kind of ['video','audio'])LEVELS.forEach((s,i)=>{let label=el('label','choice');label.title=kind==='video'?['优先小体积','画质与体积均衡','保留更多细节','不重新编码'][i]:['64 kbps','128 kbps','192 kbps','直接复制'][i];label.innerHTML=`<input type="radio" name="${kind}" value="${s}" ${i===1?'checked':''}>${['较猛','中等','较轻',kind==='video'?'原片':'原声'][i]}<small>${label.title}</small>`;$(kind).append(label)});
+const HINT={video:['优先小体积','画质与体积均衡','保留更多细节','不重新编码'],audio:['AAC 64 kbps','AAC 128 kbps','AAC 192 kbps','直接复制原音轨']};
+for(let kind of ['video','audio']){$(kind).append(el('span','thumb'));LEVELS.forEach((s,i)=>{let label=el('label','choice');label.title=HINT[kind][i];label.innerHTML=`<input type="radio" name="${kind}" value="${s}" ${i===1?'checked':''}>${['较猛','中等','较轻',kind==='video'?'原片':'原声'][i]}`;$(kind).append(label)})}
+function syncSeg(){for(let kind of ['video','audio']){let i=LEVELS.indexOf(document.querySelector(`[name=${kind}]:checked`).value),seg=$(kind),thumb=seg.querySelector('.thumb');thumb.style.width=`calc((100% - 4px) / 4)`;thumb.style.transform=`translateX(${i*100}%)`;setText($(kind+'Hint'),HINT[kind][i])}}
 const presets=[['日常随拍','压缩较猛','中等压缩','体积最小'],['有点重要','中等压缩','压缩较轻','均衡'],['重要时刻','压缩较轻','保留原片质量','细节优先']];
 presets.forEach((preset,index)=>{let button=el('button','preset');button.type='button';button.innerHTML=`<b>${preset[0]}</b><small>${preset[3]}</small>`;button.onclick=()=>applyPreset(index);$('presets').append(button)});
 function currentQuality(){return {video:document.querySelector('[name=video]:checked').value,audio:document.querySelector('[name=audio]:checked').value}}
-function updatePreset(){let q=currentQuality();[...$('presets').children].forEach((b,i)=>b.classList.toggle('active',q.video===presets[i][1]&&q.audio===presets[i][2]))}
+function updatePreset(){followGlobal();let q=currentQuality();[...$('presets').children].forEach((b,i)=>b.classList.toggle('active',q.video===presets[i][1]&&q.audio===presets[i][2]));syncSeg()}
 function applyPreset(index){document.querySelector(`[name=video][value="${presets[index][1]}"]`).checked=true;document.querySelector(`[name=audio][value="${presets[index][2]}"]`).checked=true;updatePreset();refreshSpace()}
 function remember(paths){let q=currentQuality();paths.forEach(p=>{if(!fileOptions[p])fileOptions[p]={...q}})}
+/* videos the user has not set one by one follow the global choice */
+function followGlobal(){let q=currentQuality();for(let [path,row] of selRows){let o=fileOptions[path];if(!o||o.custom)continue;Object.assign(o,q);row.querySelectorAll('select[data-kind]').forEach(sel=>{if(sel.value!==o[sel.dataset.kind]){sel.value=o[sel.dataset.kind];sel.animate?.([{background:'var(--accent-soft)'},{background:''}],{duration:600})}})}}
 document.querySelectorAll('[name=video],[name=audio]').forEach(e=>e.addEventListener('change',()=>{if(e.name==='video'&&e.value==='保留原片质量'&&e.checked)document.querySelector('[name=audio][value="保留原片质量"]').checked=true;updatePreset();refreshSpace()}));applyPreset(1);
 
 /* pipeline */
 function fillPipeline(v){$('verificationMode').value=v.verification;$('parallelJobs').value=v.jobs;$('parallelEncoders').value=v.encoders;$('parallelCheckers').value=v.checkers}
 api('/pipeline').then(fillPipeline).catch(error);
-$('savePipeline').onclick=async()=>{try{fillPipeline(await api('/pipeline',{verification:$('verificationMode').value,jobs:Number($('parallelJobs').value),encoders:Number($('parallelEncoders').value),checkers:Number($('parallelCheckers').value)}));$('pipelineMessage').textContent='已保存，用于新加入的视频'}catch(e){$('pipelineMessage').textContent=e.message}};
+$('savePipeline').onclick=()=>withBusy($('savePipeline'),async()=>{try{fillPipeline(await api('/pipeline',{verification:$('verificationMode').value,jobs:Number($('parallelJobs').value),encoders:Number($('parallelEncoders').value),checkers:Number($('parallelCheckers').value)}));toast('检查与并行设置已保存，用于新加入的视频')}catch(e){toast(e.message,{bad:true})}});
 
 function settings(){return {verification_mode:$('verificationMode').value,temporary_storage:$('temporaryStorage').checked,osv:{backend:$('osvBackend').value,resolution:$('osvResolution').value,temp_root:$('osvTemp').value},files,file_options:fileOptions,suffix:$('suffix').value,start:$('start').value,width:$('width').value,output:$('output').value,video:currentQuality().video,audio:currentQuality().audio,engine:$('engine').value,pano:$('pano').checked,same:$('same').checked,archive:$('archive').checked,delete_mode:$('delete_mode').value}}
 
-/* selection list */
-function qualitySelect(kind,source){let select=el('select','quality-select');select.title=kind==='video'?'此视频画质':'此视频声音';let labels=kind==='video'?['视频较猛','视频中等','视频较轻','原片视频']:['音频较猛','音频中等','音频较轻','原音频'];LEVELS.forEach((v,i)=>{let o=el('option',null,labels[i]);o.value=v;select.append(o)});select.value=fileOptions[source][kind];select.onchange=()=>{fileOptions[source][kind]=select.value;refreshSpace()};return select}
-async function preview(){let version=++previewVersion;$('error').textContent='';remember(files);let items=files.map(source=>({source,name:'等待生成命名预览',folder:'',size:0}));try{items=(await api('/preview',settings())).items}catch(e){error(e)}if(version!==previewVersion)return;files=items.map(i=>i.source);$('files').replaceChildren();$('empty').hidden=!!files.length;$('clearSel').hidden=!files.length;$('count').textContent=files.length;let total=0;items.forEach(item=>{total+=item.size;if(!fileOptions[item.source])fileOptions[item.source]=currentQuality();let row=el('div','file');let detail=el('div','detail');let name=el('div','filename',item.source.split(/[\\/]/).pop());name.title=item.source;let rename=el('div','rename','→ '+(item.folder?item.folder+'/':'')+item.name);rename.title=rename.textContent;detail.append(name,rename);let est=el('div','est');est.dataset.source=item.source;est.textContent=size(item.size);let controls=el('div','queue-actions');controls.append(qualitySelect('video',item.source),qualitySelect('audio',item.source));let rm=el('button','x','×');rm.title='移除此视频';rm.onclick=()=>{files=files.filter(p=>p!==item.source);delete fileOptions[item.source];preview()};controls.append(rm);row.append(el('span','icon','▷'),detail,est,controls);$('files').append(row)});$('total').textContent=files.length?`已选 ${files.length} 个 · ${size(total)}`:'尚未添加视频';$('example').textContent=items.length?'预览：'+(items[0].folder?items[0].folder+'/':'')+items[0].name:'命名示例：08.22/20260921_143025_'+$('suffix').value+'_001.mp4';refreshSpace()}
-async function add(){try{let v=await api('/pick',{kind:'files'});remember(v.value);files=[...new Set([...files,...v.value])].sort();showTab('add');preview()}catch(e){error(e)}}$('add').onclick=add;$('choose').onclick=add;
+/* selection list (keyed: rows survive re-renders, only new ones animate in) */
+function qualitySelect(kind,source){let select=el('select','quality-select');select.title=kind==='video'?'此视频画质':'此视频声音';let labels=kind==='video'?['视频较猛','视频中等','视频较轻','原片视频']:['音频较猛','音频中等','音频较轻','原音频'];LEVELS.forEach((v,i)=>{let o=el('option',null,labels[i]);o.value=v;select.append(o)});select.value=fileOptions[source][kind];select.dataset.kind=kind;select.onchange=()=>{fileOptions[source][kind]=select.value;fileOptions[source].custom=true;refreshSpace()};return select}
+function selRow(item){let row=selRows.get(item.source);if(!row){row=el('div','file enter');let icon=el('span','icon');icon.innerHTML=ic('film');let detail=el('div','detail');let name=el('div','filename',item.source.split(/[\\/]/).pop());name.title=item.source;detail.append(name,el('div','rename'));let est=el('div','est');est.dataset.source=item.source;let controls=el('div','queue-actions');controls.append(qualitySelect('video',item.source),qualitySelect('audio',item.source));let rm=el('button','x');rm.innerHTML=ic('x');rm.title='移除此视频';rm.setAttribute('aria-label','移除');rm.onclick=()=>{files=files.filter(p=>p!==item.source);delete fileOptions[item.source];row.style.transition='opacity .18s,transform .18s';row.style.opacity=0;row.style.transform='translateX(8px)';setTimeout(preview,170)};controls.append(rm);row.append(icon,detail,est,controls);selRows.set(item.source,row)}
+let rename=row.querySelector('.rename');setText(rename,'→ '+(item.folder?item.folder+'/':'')+item.name);rename.title=rename.textContent;row.querySelector('.est').dataset.size=item.size;paintEstimate(row.querySelector('.est'));return row}
+function paintEstimate(node){let est=lastSpace?.selection?.items?.[node.dataset.source];let base=size(node.dataset.size);node.innerHTML='';node.append(base+' → ');let b=el('b',null,est==null?'估算中':'约 '+size(est));if(est==null)b.style.color='var(--faint)';node.append(b)}
+async function preview(){let version=++previewVersion;$('error').textContent='';remember(files);let items=files.map(source=>({source,name:'正在生成文件名…',folder:'',size:0}));try{items=(await api('/preview',settings())).items}catch(e){error(e)}if(version!==previewVersion)return;files=items.map(i=>i.source);
+for(let [key,row] of selRows)if(!files.includes(key)){row.remove();selRows.delete(key)}
+let list=$('files'),total=0;items.forEach((item,i)=>{total+=item.size;if(!fileOptions[item.source])fileOptions[item.source]=currentQuality();let row=selRow(item);if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});
+$('empty').hidden=!!files.length;$('clearSel').hidden=!files.length;setText($('count'),String(files.length));setText($('total'),files.length?`已选 ${files.length} 个 · ${size(total)}`:'尚未添加视频');setText($('example'),items.length?(items[0].folder?items[0].folder+'/':'')+items[0].name:'08.22/20260921_143025_'+$('suffix').value+'_001.mp4');updateGo();refreshSpace()}
+async function add(){try{let v=await api('/pick',{kind:'files'});if(!v.value.length)return;remember(v.value);files=[...new Set([...files,...v.value])].sort();showTab('add');await preview();toast(`已添加 ${v.value.length} 个视频`)}catch(e){error(e)}}$('add').onclick=add;$('choose').onclick=add;
 $('clearSel').onclick=()=>{files=[];fileOptions={};preview()};
-for(let id of ['suffix','start','width'])$(id).oninput=preview;$('archive').onchange=preview;
+let previewDebounce;for(let id of ['suffix','start','width'])$(id).oninput=()=>{clearTimeout(previewDebounce);previewDebounce=setTimeout(preview,250)};$('archive').onchange=preview;
 function syncOutput(){$('outputField').hidden=$('same').checked}$('same').onchange=()=>{syncOutput();preview()};syncOutput();
 $('folder').onclick=async()=>{try{let v=await api('/pick',{kind:'folder'});if(v.value)$('output').value=v.value}catch(e){error(e)}};
 const deleteHints={keep:'原片保留，硬盘会多出压缩版的空间。',trash:'原片进回收站：要清空回收站后空间才会释放。',permanent:'校验通过后原片直接删除，空间立刻释放，无法从回收站找回。'};
-function syncDelete(){$('deleteHint').textContent=deleteHints[$('delete_mode').value];refreshSpace()}$('delete_mode').onchange=syncDelete;
+function syncDelete(){setText($('deleteHint'),deleteHints[$('delete_mode').value]);refreshSpace()}$('delete_mode').onchange=syncDelete;
 
 /* scan */
-$('scanToggle').onclick=()=>{let d=$('scanDrawer');d.hidden=!d.hidden;$('scanToggle').setAttribute('aria-expanded',!d.hidden)};
+$('scanToggle').onclick=()=>{let d=$('scanDrawer');d.hidden=!d.hidden;$('scanToggle').setAttribute('aria-expanded',!d.hidden);$('scanToggle').classList.toggle('primary',!d.hidden);if(!d.hidden)$('libraryRoot').focus()};
 $('libraryBrowse').onclick=async()=>{try{let v=await api('/pick',{kind:'folder'});if(v.value)$('libraryRoot').value=v.value}catch(e){error(e)}};
-$('scan').onclick=async()=>{try{$('scan').disabled=true;$('scanStatus').textContent='正在读取码率并判断视频来源…';scanResult=await api('/scan',{root:$('libraryRoot').value,year:$('scanYear').value});$('days').replaceChildren();scanResult.days.forEach((day,index)=>{let o=el('option');o.value=index;let ready=day.pending;o.disabled=ready===0;let compressed=day.explicit_compressed+day.likely_compressed;o.textContent=ready===0?`${day.date}　✓ 无需处理　已完成 ${day.completed}　已压缩 ${compressed}`:`${day.date}　待处理 ${ready}　直出 ${day.camera_source} / 待确认 ${day.unknown_source}　已压缩 ${compressed}${day.unsupported?'　OSV '+day.unsupported:''}`;$('days').append(o)});$('scanStatus').textContent=`可处理 ${scanResult.candidate_count} 个（直出 ${scanResult.camera_source_count}，待确认 ${scanResult.unknown_source_count}）· 已压缩 ${scanResult.explicit_compressed_count}+疑似 ${scanResult.likely_compressed_count} · 本程序完成 ${scanResult.completed_count} · OSV ${scanResult.unsupported_count}`}catch(e){$('scanStatus').textContent='扫描失败：'+(e.message||e)}finally{$('scan').disabled=false}};
+$('scan').onclick=()=>withBusy($('scan'),async()=>{try{$('scanStatus').textContent='正在读取码率并判断视频来源…';scanResult=await api('/scan',{root:$('libraryRoot').value,year:$('scanYear').value});$('days').replaceChildren();scanResult.days.forEach((day,index)=>{let o=el('option');o.value=index;let ready=day.pending;o.disabled=ready===0;let compressed=day.explicit_compressed+day.likely_compressed;o.textContent=ready===0?`${day.date}　✓ 无需处理　已完成 ${day.completed}　已压缩 ${compressed}`:`${day.date}　待处理 ${ready}　直出 ${day.camera_source} / 待确认 ${day.unknown_source}　已压缩 ${compressed}${day.unsupported?'　OSV '+day.unsupported:''}`;$('days').append(o)});$('scanStatus').textContent=`可处理 ${scanResult.candidate_count} 个（直出 ${scanResult.camera_source_count}，待确认 ${scanResult.unknown_source_count}）· 已压缩 ${scanResult.explicit_compressed_count}+疑似 ${scanResult.likely_compressed_count} · 本程序完成 ${scanResult.completed_count} · OSV ${scanResult.unsupported_count}`}catch(e){$('scanStatus').textContent='扫描失败：'+(e.message||e)}});
 $('selectAllDays').onclick=()=>{for(let o of $('days').options)if(!o.disabled)o.selected=true};
-async function addSelectedDays(){try{if(!scanResult)throw Error('请先扫描');let chosen=[...$('days').selectedOptions].flatMap(o=>scanResult.days[Number(o.value)].files);if(!chosen.length)throw Error('请选择至少一个含可处理视频的日期');remember(chosen);files=[...new Set([...files,...chosen])];await preview()}catch(e){error(e)}}$('addDays').onclick=addSelectedDays;$('days').ondblclick=e=>{if(e.target.tagName==='OPTION'&&!e.target.disabled){for(let o of $('days').options)o.selected=false;e.target.selected=true;addSelectedDays()}};
+async function addSelectedDays(){try{if(!scanResult)throw Error('请先扫描');let chosen=[...$('days').selectedOptions].flatMap(o=>scanResult.days[Number(o.value)].files);if(!chosen.length)throw Error('请选择至少一个含可处理视频的日期');remember(chosen);files=[...new Set([...files,...chosen])];await preview();toast(`已加入 ${chosen.length} 个视频`)}catch(e){error(e)}}$('addDays').onclick=addSelectedDays;$('days').ondblclick=e=>{if(e.target.tagName==='OPTION'&&!e.target.disabled){for(let o of $('days').options)o.selected=false;e.target.selected=true;addSelectedDays()}};
 
 /* queue controls */
-function running(value,paused=false){busy=value;$('stop').disabled=!value;$('pause').disabled=!value||paused;$('resume').disabled=!paused;if(!value)$('phase').textContent=files.length?'待加入':'等待开始';else if(paused)$('phase').textContent='队列已暂停';$('go').textContent=files.length?(value?`再加入 ${files.length} 个视频`:`加入并开始压缩 ${files.length} 个视频`):(value?'继续加入队列':'加入并开始压缩');$('go').disabled=!files.length}
-$('go').onclick=async()=>{try{if(importing)throw Error('请等待拖入视频读取完成');$('error').textContent='';if(!confirmDeletion())return;await api('/start',settings());files=[];fileOptions={};await preview();running(true);showTab('queue')}catch(e){error(e)}};
-$('stop').onclick=async()=>{if(!confirm('停止全部任务？正在处理的那一个会中止并清理临时文件，原片不受影响。'))return;try{await api('/stop');$('phase').textContent='正在停止'}catch(e){error(e)}};
-$('pause').onclick=async()=>{try{await api('/pause');$('phase').textContent='本个完成后暂停'}catch(e){error(e)}};
-$('resume').onclick=async()=>{try{await api('/resume')}catch(e){error(e)}};
-$('clearHistory').onclick=async()=>{try{let r=await api('/clear-history');$('error').textContent=`已清空 ${r.removed} 个已结束任务。`;refreshSpace()}catch(e){error(e)}};
+let queuePaused=false;
+function updateGo(){let n=files.length,b=$('go');if(b.dataset.busy)return;setText(b,n?(busy?`再加入 ${n} 个视频`:`开始压缩 ${n} 个视频`):'先选择视频');b.disabled=!n}
+function running(value,paused=false){busy=value;queuePaused=paused;$('stop').disabled=!value;$('pause').disabled=!value||paused;$('resume').disabled=!paused;$('phase').classList.toggle('live',value&&!paused);document.querySelector('.status-box').classList.toggle('busy',value&&!paused);if(!value)setText($('phase'),files.length?'待加入':'空闲');else if(paused)setText($('phase'),'已暂停');updateGo()}
+$('go').onclick=()=>withBusy($('go'),async()=>{try{if(importing)throw Error('请等待拖入视频读取完成');$('error').textContent='';if(!confirmDeletion())return;let n=files.length;await api('/start',settings());files=[];fileOptions={};await preview();running(true);showTab('queue');toast(`已加入队列：${n} 个视频`)}catch(e){error(e)}}).then(updateGo);
+$('stop').onclick=async()=>{if(!confirm('停止全部任务？正在处理的那一个会中止并清理临时文件，原片不受影响。'))return;try{await api('/stop');setText($('phase'),'正在停止')}catch(e){error(e)}};
+$('pause').onclick=async()=>{try{await api('/pause');setText($('phase'),'本个完成后暂停');toast('当前视频处理完后暂停')}catch(e){error(e)}};
+$('resume').onclick=async()=>{try{await api('/resume');toast('队列继续')}catch(e){error(e)}};
+$('clearHistory').onclick=async()=>{try{let r=await api('/clear-history');toast(`已清空 ${r.removed} 个已结束任务`);refreshSpace()}catch(e){error(e)}};
 $('match').onclick=async()=>{try{let v=await api('/pick',{kind:'records'});if(!v.value.length)return;if($('delete_mode').value==='keep')throw Error('请先在「原片」里选择回收站或彻底删除');if(!confirmDeletion())return;await api('/delete',{records:v.value,mode:$('delete_mode').value});running(true);showTab('log')}catch(e){error(e)}};
 $('quick').onclick=async()=>{try{if($('delete_mode').value==='keep')throw Error('请先在「原片」里选择回收站或彻底删除');if(!confirmDeletion())return;await api('/quick-delete',{mode:$('delete_mode').value});running(true);showTab('log')}catch(e){error(e)}};
 function confirmDeletion(){let mode=$('delete_mode').value;if(mode==='keep')return true;return confirm(mode==='permanent'?'校验通过的原片将被彻底删除，无法从回收站恢复。确定？':'校验通过后将原片移入回收站，确定？')}
 
 /* progress */
 function etaText(s){return s==null?'估算中':clock(Math.ceil(s))}
-function showTiming(t={}){let box=$('timing');box.replaceChildren();[['本个已用',clock(t.current_elapsed)],['本阶段剩余',etaText(t.phase_eta)],['本个剩余',etaText(t.current_eta)],['队列剩余',etaText(t.queue_eta)],['累计处理',clock(t.processing_elapsed)]].forEach(([k,v])=>{let c=el('span','chip',k+' ');c.append(el('b',null,v));box.append(c)});box.title=t.eta_basis||'预计时间随实际速度更新'}
-function showActiveStages(list=[]){$('activeStages').hidden=list.length<2;$('activeStages').textContent=list.map(v=>v.file+' · '+(v.phase||'等待开始')+(v.duration?' · '+clock(v.current_seconds)+' / '+clock(v.duration):'')).join('\n')}
-function showProgress(p={}){showTiming(p.timing||{});showActiveStages(p.active_tasks||[]);let duration=Number(p.duration)||0,current=Math.min(Number(p.current_seconds)||0,duration||Infinity),total=Number(p.total)||0,processed=Number(p.processed)||0,bytes=Number(p.bytes_total)||0,done=Number(p.bytes_done)||0;let pct=bytes?Math.min(100,done/bytes*100):0;$('currentText').textContent=bytes?`${pct.toFixed(1)}% · ${size(done)} / ${size(bytes)}`:clock(current)+' / '+clock(duration);$('currentBar').style.width=(bytes?pct:duration?Math.min(100,current/duration*100):0)+'%';$('currentFile').textContent=(p.phase||'等待开始')+(p.file?' · '+p.file:'');$('overallText').textContent=`已完成 ${processed} / ${total} · 剩余 ${Number(p.remaining)||0} 个`;$('overallBar').style.width=(total?Math.min(100,processed/total*100):0)+'%';if(p.phase&&busy&&!p.paused)$('phase').textContent=p.phase}
+const chipKeys=[['current_elapsed','本个已用',clock],['phase_eta','本阶段剩余',etaText],['current_eta','本个剩余',etaText],['queue_eta','队列剩余',etaText],['processing_elapsed','累计处理',clock]];
+function showTiming(t={}){let box=$('timing');if(!box.children.length)chipKeys.forEach(([,k])=>{let c=el('span','chip',k);c.append(el('b'));box.append(c)});chipKeys.forEach(([key,,fmt],i)=>setText(box.children[i].querySelector('b'),fmt(t[key])));box.title=t.eta_basis||'预计时间随实际速度更新'}
+function showActiveStages(list=[]){$('activeStages').hidden=list.length<2;setText($('activeStages'),list.map(v=>v.file+' · '+(v.phase||'等待开始')+(v.duration?' · '+clock(v.current_seconds)+' / '+clock(v.duration):'')).join('\n'))}
+function showProgress(p={}){showTiming(p.timing||{});showActiveStages(p.active_tasks||[]);let duration=Number(p.duration)||0,current=Math.min(Number(p.current_seconds)||0,duration||Infinity),total=Number(p.total)||0,processed=Number(p.processed)||0,bytes=Number(p.bytes_total)||0,done=Number(p.bytes_done)||0;let pct=bytes?Math.min(100,done/bytes*100):0;setText($('currentText'),bytes?`${pct.toFixed(1)}% · ${size(done)} / ${size(bytes)}`:clock(current)+' / '+clock(duration));$('currentBar').style.width=(bytes?pct:duration?Math.min(100,current/duration*100):0)+'%';setText($('currentFile'),(p.phase||'等待开始')+(p.file?' · '+p.file:''));setText($('overallText'),`${processed} / ${total} · 剩余 ${Number(p.remaining)||0} 个`);$('overallBar').style.width=(total?Math.min(100,processed/total*100):0)+'%';if(p.phase&&busy&&!p.paused)setText($('phase'),p.phase)}
 const ENG={hevc_nvenc:'NVIDIA 显卡（GPU）',hevc_qsv:'Intel 核显（GPU）',hevc_videotoolbox:'Apple 媒体引擎（GPU）',libx265:'CPU（x265）',copy:'直接复制视频流'};
-function engineLine(p={}){let box=$('engineLine');box.replaceChildren();if(!p.engine_name)return;let b=el('b',null,`正在使用：${p.engine_name}（${p.engine_kind}）${p.hw_decode?' · 显卡解码':''}`);b.style.color=p.engine_kind==='CPU'?'#9b6a40':'#2f6c4c';box.append(b);(p.engine_skipped||[]).forEach(t=>{let d=el('div',null,'⚠ 没用上 '+t);d.style.color='#9b6a40';box.append(d)})}
+function engineLine(p={}){let box=$('engineLine'),text=p.engine_name?`正在使用 ${p.engine_name}（${p.engine_kind}）${p.hw_decode?' · 显卡解码':''}`+(p.engine_skipped||[]).map(t=>'\n⚠ 没用上 '+t).join(''):'';if(box.dataset.t===text)return;box.dataset.t=text;box.style.whiteSpace='pre-line';box.style.color=p.engine_kind==='CPU'?'var(--warn)':'';box.textContent=text}
 const statusText={pending:'等待',running:'处理中',completed:'已完成',failed:'失败',cancelled:'已取消',interrupted:'待继续'};
-function renderTasks(tasks=[]){if(document.activeElement?.closest('#taskList')&&document.activeElement.tagName==='SELECT')return;$('taskList').replaceChildren();if(!tasks.length){let e=el('div','empty');e.innerHTML='<strong>队列是空的</strong><p class="muted">在「① 选择视频」里选好视频，点右下角「加入并开始压缩」。</p>';$('taskList').append(e);return}
+const taskRows=new Map();let taskSig='';
+function taskRow(task){let row=taskRows.get(task.id);if(!row){row=el('div','file'+(taskRows.size&&!firstPoll?' enter':''));row.innerHTML='<span class="icon"></span><div class="detail"><div class="filename"></div><div class="rename"></div></div><div class="est"></div><div class="queue-actions"><span class="task-status"></span><span class="slot"></span></div>';taskRows.set(task.id,row)}
+let sig=JSON.stringify([task.status,task.message,task.engine,task.elapsed_seconds,task.estimated_size,task.output_size,task.verification_mode]);if(row.dataset.sig===sig)return row;row.dataset.sig=sig;
+let icon=row.querySelector('.icon');let iconName=task.status==='completed'?'check':task.status==='failed'?'alert':task.status==='running'?'clock':'film';if(icon.dataset.n!==iconName){icon.dataset.n=iconName;icon.innerHTML=ic(iconName);icon.style.color=task.status==='completed'?'var(--good)':task.status==='failed'?'var(--bad)':task.status==='running'?'var(--accent)':''}
+let name=row.querySelector('.filename');setText(name,task.source.split(/[\\/]/).pop());name.title=task.source;
+let check=(task.verification_mode||(task.status==='completed'?'cpu':$('verificationMode').value))==='gpu'?'GPU 快检':'CPU 严检';let target=row.querySelector('.rename');target.title=task.output+'\n'+task.message;setText(target,`${task.message} · ${task.video.replace('压缩','')} / 音频${task.audio.replace('压缩','')} · ${check}${task.engine?' · '+(ENG[task.engine]||task.engine):''}${task.elapsed_seconds!=null?' · 用时 '+clock(task.elapsed_seconds):''} → ${task.output.split(/[\\/]/).pop()}`);
+let est=row.querySelector('.est');est.replaceChildren();if(task.source_size){est.append(size(task.source_size));let after=task.status==='completed'&&task.output_size?size(task.output_size):task.estimated_size&&task.status!=='completed'?'约 '+size(task.estimated_size):'';if(after){est.append(' → ');est.append(el('b',null,after))}}
+let st=row.querySelector('.task-status');st.className='task-status '+task.status;setText(st,statusText[task.status]||task.status);
+let slot=row.querySelector('.slot');slot.replaceChildren();slot.style.display='contents';
+if(!['running','completed'].includes(task.status)){let mode=el('select','quality-select');mode.title='此视频的检查方式';for(let [v,t] of [['cpu','CPU 严检'],['gpu','GPU 快检']]){let o=el('option',null,t);o.value=v;mode.append(o)}mode.value=task.verification_mode||$('verificationMode').value;mode.onchange=()=>api('/task-verification',{id:task.id,mode:mode.value}).catch(error);slot.append(mode)}
+if(task.status==='pending'||task.status==='running'){let b=el('button',null,'取消');b.onclick=()=>api('/cancel-task',{id:task.id}).catch(error);slot.append(b)}
+if(task.status==='failed'||task.status==='cancelled'){let b=el('button',null,'重新加入');b.onclick=()=>api('/retry-task',{id:task.id}).then(()=>toast('已重新加入队列')).catch(error);slot.append(b)}
+return row}
+function renderTasks(tasks=[]){if(document.activeElement?.closest('#taskList')&&document.activeElement.tagName==='SELECT')return;let list=$('taskList');
+if(!tasks.length){taskRows.forEach(r=>r.remove());taskRows.clear();if(!list.querySelector('.empty')){let e=el('div','empty');e.innerHTML=`<div class="glyph">${ic('film')}</div><strong>队列是空的</strong><p class="muted">在「选择视频」里选好视频，点右下角开始压缩。</p>`;list.replaceChildren(e)}return}
+list.querySelector('.empty')?.remove();
 const order={running:0,interrupted:1,failed:2,pending:3,cancelled:4,completed:5};tasks=[...tasks].sort((a,b)=>(order[a.status]??3)-(order[b.status]??3));
-tasks.forEach(task=>{let row=el('div','file');let detail=el('div','detail');let name=el('div','filename',task.source.split(/[\\/]/).pop());name.title=task.source;let target=el('div','rename');target.title=task.output+'\n'+task.message;let check=(task.verification_mode||(task.status==='completed'?'cpu':$('verificationMode').value))==='gpu'?'GPU 快检':'CPU 严检';target.textContent=`${task.message} · ${task.video.replace('压缩','')} / 音频${task.audio.replace('压缩','')} · ${check}${task.engine?' · '+(ENG[task.engine]||task.engine):''}${task.elapsed_seconds!=null?' · 用时 '+clock(task.elapsed_seconds):''} → ${task.output.split(/[\\/]/).pop()}`;detail.append(name,target);
-let est=el('div','est');if(task.source_size){est.textContent=size(task.source_size)+(task.status==='completed'&&task.output_size?' → '+size(task.output_size):task.estimated_size&&task.status!=='completed'?' → 约 '+size(task.estimated_size):'')}
-let actions=el('div','queue-actions');actions.append(el('span','task-status '+task.status,statusText[task.status]||task.status));
-if(!['running','completed'].includes(task.status)){let mode=el('select','quality-select');mode.title='此视频的检查方式';for(let [v,t] of [['cpu','CPU 严检'],['gpu','GPU 快检']]){let o=el('option',null,t);o.value=v;mode.append(o)}mode.value=task.verification_mode||$('verificationMode').value;mode.onchange=()=>api('/task-verification',{id:task.id,mode:mode.value}).catch(error);actions.append(mode)}
-if(task.status==='pending'||task.status==='running'){let b=el('button',null,'取消');b.onclick=()=>api('/cancel-task',{id:task.id}).catch(error);actions.append(b)}
-if(task.status==='failed'||task.status==='cancelled'){let b=el('button',null,'重新加入');b.onclick=()=>api('/retry-task',{id:task.id}).catch(error);actions.append(b)}
-row.append(el('span','icon',task.status==='completed'?'✓':task.status==='running'?'◐':'▷'),detail,est,actions);$('taskList').append(row)})}
-function resumeBar(list=[]){let n=list.filter(t=>t.status==='interrupted').length,bar=$('resumeBar');bar.hidden=!n;if(!n){bar.dataset.n='';return}if(bar.dataset.n==String(n))return;bar.dataset.n=n;bar.replaceChildren();bar.append(el('span',null,`上次还有 ${n} 个视频没压完（退出、注销或关机时中断）。已完成的会跳过，被打断的从头压缩，原片仍按当时的选择处理。`),el('br'));let go=el('button','primary','继续处理');go.style.margin='8px 8px 0 0';go.onclick=()=>api('/queue/continue').then(()=>{bar.dataset.n=''}).catch(error);let drop=el('button',null,'放弃这些任务');drop.style.marginTop='8px';drop.onclick=()=>{if(confirm('放弃上次没做完的任务？原片不受影响，以后可以重新加入。'))api('/queue/discard').then(()=>{bar.dataset.n=''}).catch(error)};bar.append(go,drop)}
-function showStorage(entries=[]){$('storageStatus').hidden=!entries.length;$('storageStatus').textContent=entries.map(e=>e.message+'：'+e.staged+' → '+e.target).join('\n')}
-let firstPoll=true;
-async function poll(){try{let v=await api('/state');lastTasks=v.tasks;showStorage(v.temporary_storage||[]);running(v.busy,!!v.progress.paused);showProgress(v.progress);engineLine(v.progress);resumeBar(v.tasks);renderTasks(v.tasks);
-let open=v.tasks.filter(t=>['pending','running','interrupted'].includes(t.status)).length,failed=v.tasks.filter(t=>t.status==='failed').length;$('queueCount').textContent=open+(failed?` · ${failed} 失败`:'');$('queueCount').style.color=failed?'var(--bad)':'';
+let ids=new Set(tasks.map(t=>t.id));for(let [id,row] of taskRows)if(!ids.has(id)){row.remove();taskRows.delete(id)}
+tasks.forEach((task,i)=>{let row=taskRow(task);if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)})}
+function resumeBar(list=[]){let n=list.filter(t=>t.status==='interrupted').length,bar=$('resumeBar');bar.hidden=!n;if(!n){bar.dataset.n='';return}if(bar.dataset.n==String(n))return;bar.dataset.n=n;bar.replaceChildren();bar.append(el('b',null,`上次还有 ${n} 个视频没压完`),el('div','muted','退出、注销或关机时中断。已完成的会跳过，被打断的从头压缩，原片仍按当时的选择处理。'));let row=el('div');row.style.cssText='display:flex;gap:6px;margin-top:8px';let go=el('button','primary','继续处理');go.onclick=()=>withBusy(go,()=>api('/queue/continue').then(()=>{bar.dataset.n='';toast('继续处理上次的任务')}).catch(error));let drop=el('button','ghost','放弃这些任务');drop.onclick=()=>{if(confirm('放弃上次没做完的任务？原片不受影响，以后可以重新加入。'))api('/queue/discard').then(()=>{bar.dataset.n=''}).catch(error)};row.append(go,drop);bar.append(row)}
+function showStorage(entries=[]){$('storageStatus').hidden=!entries.length;setText($('storageStatus'),entries.map(e=>e.message+'：'+e.staged+' → '+e.target).join('\n'))}
+let firstPoll=true,logSig='',pollTimer=null,lastStatus={};
+async function poll(){clearTimeout(pollTimer);try{let v=await api('/state');showStorage(v.temporary_storage||[]);running(v.busy,!!v.progress.paused);showProgress(v.progress);engineLine(v.progress);resumeBar(v.tasks);renderTasks(v.tasks);
+let finished=0;v.tasks.forEach(t=>{if(lastStatus[t.id]&&lastStatus[t.id]!==t.status&&['completed','failed'].includes(t.status)){finished++;if(t.status==='failed')toast(t.source.split(/[\\/]/).pop()+' 失败：'+t.message,{bad:true,ms:6000})}lastStatus[t.id]=t.status});if(finished)refreshSpace();
+let open=v.tasks.filter(t=>['pending','running','interrupted'].includes(t.status)).length,failed=v.tasks.filter(t=>t.status==='failed').length;setText($('queueCount'),open+(failed?` · ${failed} 失败`:''));$('queueCount').classList.toggle('alert',!!failed);
 if(firstPoll){firstPoll=false;let saved=null;try{saved=localStorage.getItem('qs-tab')}catch(e){}showTab(v.tasks.length&&!files.length?'queue':saved==='log'?'log':'add')}
-$('clearHistory').disabled=v.busy||!v.tasks.length||v.tasks.some(t=>t.status==='pending'||t.status==='running');$('quick').disabled=v.busy||!v.quick_delete_count;let atEnd=$('logs').scrollHeight-$('logs').scrollTop-$('logs').clientHeight<40;$('logs').textContent=v.logs.length?v.logs.join('\n'):'添加视频并设置档位，即可开始压缩。';if(atEnd)$('logs').scrollTop=$('logs').scrollHeight}catch(e){$('phase').textContent='本地服务未连接'}setTimeout(poll,800)}
+$('clearHistory').disabled=v.busy||!v.tasks.length||v.tasks.some(t=>t.status==='pending'||t.status==='running');$('quick').disabled=v.busy||!v.quick_delete_count;
+let sig=v.logs.length+'|'+(v.logs[v.logs.length-1]||'');if(sig!==logSig){logSig=sig;let log=$('logs'),atEnd=log.scrollHeight-log.scrollTop-log.clientHeight<40;log.textContent=v.logs.length?v.logs.join('\n'):'添加视频并设置档位，即可开始压缩。';if(atEnd)log.scrollTop=log.scrollHeight}}catch(e){setText($('phase'),'本地服务未连接');$('phase').classList.remove('live')}
+pollTimer=setTimeout(poll,document.hidden?5000:900)}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){poll();loadSpace()}});
 
-/* storage space */
-function spaceBar(total,free,after,before){let bar=el('div','bar');let usedNow=total-free;let pct=x=>Math.max(0,Math.min(100,x/total*100))+'%';let seg=(cls,w,title)=>{let i=el('i',cls);i.style.width=pct(w);i.title=title;bar.append(i)};
-if(after>=free){seg('u',total-after,'已用');seg('f',after-free,'将腾出 '+size(after-free))}else{seg('u',usedNow,'已用');seg('a',free-after,'将占用 '+size(free-after))}
-if(before!=null&&Math.abs(before-free)>total*0.003){let t=el('span','tick');t.style.left=pct(total-before);t.title='开始前已用到这里';bar.append(t)}return bar}
-function delta(n){let d=el('span','delta '+(n>=0?'up':'down'),(n>=0?'+':'')+size(n));return d}
-function driveCard(d,opts={}){let card=el('div','drive');let head=el('div','drive-head');head.append(el('b',null,d.name),el('span','tiny','共 '+size(d.total)));card.append(head,spaceBar(d.total,d.free,opts.after??d.after,opts.before??d.before));
-let flow=el('div','flow');let add=(label,v,strong)=>{let s=el('span');s.append(label+' ');let b=el(strong?'strong':'b',null,size(v));s.append(b);flow.append(s)};let arrow=()=>flow.append(el('span','arrow','→'));
-if(opts.flow)opts.flow(flow,add,arrow);else{if(d.before!=null&&Math.abs(d.before-d.free)>1e8){add('开始前',d.before);arrow()}add('现在可用',d.free,true);if(Math.abs(d.after-d.free)>1e7){arrow();add('队列完成后约',d.after,true);flow.append(delta(d.after-d.free))}if(Math.abs(d.after_selection-d.after)>1e7){arrow();add('再加入所选约',d.after_selection);flow.append(delta(d.after_selection-d.after))}}
-card.append(flow);if(d.trash_after>1e7)card.append(el('div','tiny','另有 '+size(d.trash_after)+' 原片会进回收站，清空回收站后才腾出'));if(d.unknown)card.append(el('div','tiny',d.unknown+' 个视频还在估算'));if(d.after_selection<0)card.append(el('div','tiny','⚠ 空间不够，会先放临时区或等待'));return card}
+/* storage space: cards are built once per drive and then updated in place */
+const driveCards=new Map();
+function newDriveCard(){let card=el('div','drive');card.innerHTML='<div class="drive-head"><b></b><span class="tiny"></span></div><div class="bar"><i class="u"></i><i class="f"></i><i class="a"></i><span class="tick"></span></div><div class="flow"></div><div class="tiny notes"></div>';return card}
+function driveCard(key){let card=driveCards.get(key);if(!card){card=newDriveCard();driveCards.set(key,card)}return card}
+function fillDrive(card,d,steps){card.querySelector('.drive-head b').textContent=d.name;card.querySelector('.drive-head .tiny').textContent='共 '+size(d.total);
+let pct=x=>Math.max(0,Math.min(100,x/d.total*100))+'%';let [u,f,a]=card.querySelectorAll('.bar i'),tick=card.querySelector('.tick');
+if(d.after>=d.free){u.style.width=pct(d.total-d.after);f.style.width=pct(d.after-d.free);a.style.width='0%';f.title='将腾出 '+size(d.after-d.free)}else{u.style.width=pct(d.total-d.free);f.style.width='0%';a.style.width=pct(d.free-d.after);a.title='将占用 '+size(d.free-d.after)}u.title='已用';
+let showTick=d.before!=null&&Math.abs(d.before-d.free)>d.total*0.003;tick.style.display=showTick?'':'none';if(showTick){tick.style.left=pct(d.total-d.before);tick.title='开始前用到这里'}
+let flow=card.querySelector('.flow'),shape=steps.map(s=>s[0]+(s[2]?'+':'')).join('|');if(flow.dataset.shape!==shape){flow.dataset.shape=shape;flow.replaceChildren();steps.forEach((s,i)=>{if(i)flow.append(el('span','arrow','→'));let span=el('span');span.append(s[0]+' ');span.append(el(i===0||s[3]?'strong':'b'));flow.append(span);if(s[2]!=null)flow.append(el('span','delta'))})}
+let nodes=[...flow.querySelectorAll('strong,b')],deltas=[...flow.querySelectorAll('.delta')],di=0;steps.forEach((s,i)=>{tweenSize(nodes[i],s[1]);if(s[2]!=null){let dn=deltas[di++];dn.className='delta '+(s[2]>=0?'up':'down');tweenSize(dn,s[2],s[2]>=0?'+':'')}});
+let notes=[];if(d.trash_after>1e7)notes.push('另有 '+size(d.trash_after)+' 原片会进回收站，清空后才腾出');if(d.unknown)notes.push(d.unknown+' 个视频还在估算');if(d.after_selection<0)notes.push('⚠ 空间不够，会先放临时区或等待');setText(card.querySelector('.notes'),notes.join(' · '))}
 function refreshSpace(){clearTimeout(spaceTimer);spaceTimer=setTimeout(loadSpace,250)}
-async function loadSpace(){if(spaceBusy){refreshSpace();return}spaceBusy=true;try{let s=await api('/space',{selection:files.map(f=>({source:f,...(fileOptions[f]||currentQuality())})),delete_mode:$('delete_mode').value});renderSpace(s)}catch(e){}finally{spaceBusy=false;clearTimeout(spaceTimer);spaceTimer=setTimeout(loadSpace,6000)}}
-function renderSpace(s){let strip=$('spaceStrip');strip.replaceChildren(...s.drives.slice(0,4).map(d=>driveCard(d)));let saved=el('div','saved');saved.append(el('span','muted','本轮已节省'),el('span','big',size(s.done.source-s.done.output)),el('span','muted',`${s.done.count} 个视频 · 累计 ${size(s.total_saved.bytes)}（${s.total_saved.count} 个）`));strip.append(saved);
-let leg=el('div','legend');leg.innerHTML='<span><i style="background:var(--used)"></i>已用</span><span><i style="background:#7fc79b"></i>将腾出</span><span><i style="background:#e6b468"></i>将占用</span><span><i style="background:var(--ink);opacity:.5;width:2px"></i>开始前</span>';strip.firstChild?.append(leg);
-let q=s.queue,sel=s.selection,box=$('planBox');box.replaceChildren();
-document.querySelectorAll('#files .est').forEach(e=>{let est=(sel.items||{})[e.dataset.source];let base=e.textContent.split(' → ')[0];e.textContent=est==null?base+' → 估算中':base+' → 约 '+size(est)});
-if(sel.count){let ratio=sel.source?sel.estimate/sel.source:0;let line=el('div');line.innerHTML=`所选 <span class="big"></span>`;line.querySelector('.big').textContent=`${size(sel.source)} → 约 ${size(sel.estimate)}`;box.append(line);let mode=$('delete_mode').value;let gain=mode==='permanent'?sel.source-sel.estimate:-sel.estimate;let g=el('div',gain>=0?'good':'warn',(gain>=0?'完成后多出约 ':'完成后多占用约 ')+size(Math.abs(gain))+(mode==='trash'?'（清空回收站后多出 '+size(sel.source-sel.estimate)+'）':'')+(ratio?` · 约为原来的 ${Math.round(ratio*100)}%`:''));box.append(g);if(sel.unknown)box.append(el('div','tiny',sel.unknown+' 个还在估算，稍后更新'));
-}else box.append(el('div','muted','先在左侧选择视频，这里会显示压缩后大约能省多少空间。'));
-if(q.count)box.append(el('div','tiny',`队列里还有 ${q.count} 个：${size(q.source)} → 约 ${size(q.estimate)}`));if(s.factor&&Math.abs(s.factor-1)>0.02)box.append(el('div','tiny',`已按实际压缩结果校正估算（×${s.factor.toFixed(2)}）`));fitChrome()}
+async function loadSpace(){if(spaceBusy){refreshSpace();return}spaceBusy=true;try{let s=await api('/space',{selection:files.map(f=>({source:f,...(fileOptions[f]||currentQuality())})),delete_mode:$('delete_mode').value});lastSpace=s;renderSpace(s)}catch(e){}finally{spaceBusy=false;clearTimeout(spaceTimer);spaceTimer=setTimeout(loadSpace,document.hidden?30000:6000)}}
+let savedCard=null;
+function renderSpace(s){let strip=$('spaceStrip');strip.removeAttribute('aria-busy');strip.querySelectorAll('.skeleton').forEach(n=>n.remove());let keep=new Set();
+s.drives.slice(0,4).forEach((d,i)=>{let card=driveCard(d.mount);keep.add(card);let steps=[];if(d.before!=null&&Math.abs(d.before-d.free)>1e8)steps.push(['开始前',d.before]);steps.push(['现在可用',d.free,null,true]);if(Math.abs(d.after-d.free)>1e7)steps.push(['队列完成后约',d.after,d.after-d.free,true]);if(Math.abs(d.after_selection-d.after)>1e7)steps.push(['加入所选后约',d.after_selection,d.after_selection-d.after]);fillDrive(card,d,steps);if(strip.children[i]!==card)strip.insertBefore(card,strip.children[i]||null)});
+for(let [k,c] of driveCards)if(!keep.has(c)){c.remove();driveCards.delete(k)}
+if(!savedCard){savedCard=el('div','saved');savedCard.innerHTML='<span class="tiny">本轮已节省</span><span class="big"></span><span class="tiny sub"></span>';let leg=el('div','legend');leg.innerHTML='<span><i style="background:var(--used)"></i>已用</span><span><i style="background:var(--freed)"></i>将腾出</span><span><i style="background:var(--taken)"></i>将占用</span><span><i style="background:var(--ink);width:2px;opacity:.6"></i>开始前</span>';savedCard.legend=leg}
+strip.append(savedCard);tweenSize(savedCard.querySelector('.big'),s.done.source-s.done.output);setText(savedCard.querySelector('.sub'),`${s.done.count} 个视频 · 累计 ${size(s.total_saved.bytes)}（${s.total_saved.count} 个）`);if(strip.firstChild!==savedCard)strip.firstChild.append(savedCard.legend);
+let q=s.queue,sel=s.selection,box=$('planBox');document.querySelectorAll('#files .est').forEach(paintEstimate);
+let shape=sel.count?'sel':'none';if(box.dataset.shape!==shape){box.dataset.shape=shape;box.replaceChildren();if(sel.count){box.append(el('span',null,'所选视频'),el('span','big'),el('div','gain'),el('div','tiny unk'))}else box.append(el('div','muted','先在左侧选择视频，这里会显示压缩后大约能省多少空间。'));box.append(el('div','tiny queue'),el('div','tiny factor'))}
+if(sel.count){setText(box.querySelector('.big'),`${size(sel.source)} → 约 ${size(sel.estimate)}`);let ratio=sel.source?sel.estimate/sel.source:0,mode=$('delete_mode').value,gain=mode==='permanent'?sel.source-sel.estimate:-sel.estimate,g=box.querySelector('.gain');g.className='gain '+(gain>=0?'good':'warn');setText(g,(gain>=0?'完成后多出约 ':'完成后多占用约 ')+size(Math.abs(gain))+(mode==='trash'?'（清空回收站后多出 '+size(sel.source-sel.estimate)+'）':'')+(ratio?` · 约为原来的 ${Math.round(ratio*100)}%`:''));setText(box.querySelector('.unk'),sel.unknown?sel.unknown+' 个还在估算，稍后更新':'')}
+setText(box.querySelector('.queue'),q.count?`队列里还有 ${q.count} 个：${size(q.source)} → 约 ${size(q.estimate)}`:'');setText(box.querySelector('.factor'),s.factor&&Math.abs(s.factor-1)>0.02?`已按实际压缩结果校正估算（×${s.factor.toFixed(2)}）`:'');fitChrome()}
 loadSpace();
 
 /* drag & drop */
 let importing=false,dragDepth=0;
 document.addEventListener('dragenter',e=>{e.preventDefault();dragDepth++;showTab('add');$('empty').classList.add('drag')});document.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('empty').classList.remove('drag')}});document.addEventListener('dragover',e=>e.preventDefault());
-document.addEventListener('drop',async e=>{e.preventDefault();dragDepth=0;$('empty').classList.remove('drag');if(importing)return;importing=true;try{for(let f of e.dataTransfer.files){if(!/\.(mp4|mov|mkv|osv)$/i.test(f.name))throw Error('仅支持 MP4、MOV、MKV、OSV');$('error').textContent='正在本地读取 '+f.name+'，大文件可能需要一些时间…';let r=await fetch('/upload',{method:'POST',headers:{'X-App-Token':token,'X-Filename':encodeURIComponent(f.name)},body:f});let result=await r.json();if(!r.ok)throw Error(result.error);remember([result.source]);files.push(result.source)}await preview();$('error').textContent='拖入的视频已读取。要保存到原目录或删除原片，请先点「关联原片文件夹」。'}catch(e){error(e)}finally{importing=false}});
-$('link').onclick=async()=>{try{let result=await api('/pick',{kind:'folder'});if(!result.value)return;$('error').textContent='正在核对原片内容…';let old=[...files],linked=(await api('/link',{files,folder:result.value})).files,next={};linked.forEach((p,i)=>next[p]=fileOptions[old[i]]||currentQuality());files=linked;fileOptions=next;await preview();$('error').textContent=''}catch(e){error(e)}};
+document.addEventListener('drop',async e=>{e.preventDefault();dragDepth=0;$('empty').classList.remove('drag');if(importing)return;importing=true;let note=null;try{for(let f of e.dataTransfer.files){if(!/\.(mp4|mov|mkv|osv)$/i.test(f.name))throw Error('仅支持 MP4、MOV、MKV、OSV');note?.close();note=toast('正在读取 '+f.name+'…',{sticky:true});let r=await fetch('/upload',{method:'POST',headers:{'X-App-Token':token,'X-Filename':encodeURIComponent(f.name)},body:f});let result=await r.json();if(!r.ok)throw Error(result.error);remember([result.source]);files.push(result.source)}await preview();toast('拖入的视频已读取。要保存到原目录或删除原片，请先「关联原片文件夹」',{ms:5000})}catch(e){error(e)}finally{note?.close();importing=false}});
+$('link').onclick=async()=>{try{let result=await api('/pick',{kind:'folder'});if(!result.value)return;let note=toast('正在核对原片内容…',{sticky:true});try{let old=[...files],linked=(await api('/link',{files,folder:result.value})).files,next={};linked.forEach((p,i)=>next[p]=fileOptions[old[i]]||currentQuality());files=linked;fileOptions=next;selRows.forEach(r=>r.remove());selRows.clear();await preview();toast('已关联原片')}finally{note.close()}}catch(e){error(e)}};
+
+/* keyboard: ⌘/Ctrl+O add videos, ⌘/Ctrl+Enter start, Esc closes the SD window */
+document.addEventListener('keydown',e=>{let mod=e.metaKey||e.ctrlKey;if(e.key==='Escape'&&!$('sdModal').hidden){closeModal();return}if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();add()}if(mod&&e.key==='Enter'&&!$('go').disabled){e.preventDefault();$('go').click()}});
 
 /* hardware & logs */
-async function loadHw(recheck=false){try{let h=await api('/hardware',{recheck});let box=$('hwInfo');box.replaceChildren();if(h.status!=='done'){box.textContent='正在检测这台电脑能用的编码方式…';setTimeout(loadHw,1500);return}
-let head=el('div');head.append(el('b',null,'「自动选择」会用：'+h.auto));box.append(head);if(h.gpu)box.append(el('div',null,'本机：'+h.gpu));
-h.items.forEach(i=>{let d=el('div',null,`${i.ok?'✓':'✗'} ${i.name}（${i.kind}）${i.note?'：'+i.note:''}`);if(!i.ok)d.style.color='#9b4f40';box.append(d)})}catch(e){$('hwInfo').textContent='检测失败：'+e.message}}
+async function loadHw(recheck=false){try{let h=await api('/hardware',{recheck});let box=$('hwInfo');box.replaceChildren();if(h.status!=='done'){box.innerHTML='<span class="spin" style="vertical-align:-2px;margin-right:6px"></span>正在检测这台电脑能用的编码方式…';setTimeout(loadHw,1500);return}
+let head=el('div');head.append(el('b',null,'自动选择 → '+h.auto));head.style.color='var(--ink)';box.append(head);if(h.gpu)box.append(el('div',null,'本机：'+h.gpu));
+h.items.forEach(i=>{let d=el('div',null,`${i.ok?'✓':'✗'} ${i.name}（${i.kind}）${i.note?'：'+i.note:''}`);if(!i.ok)d.style.color='var(--bad)';box.append(d)})}catch(e){$('hwInfo').textContent='检测失败：'+e.message}}
 $('hwRecheck').onclick=()=>loadHw(true);loadHw();
-$('openLogs').onclick=()=>api('/open-logs').then(v=>{$('error').textContent='日志文件夹：'+v.path}).catch(error);
+$('openLogs').onclick=()=>api('/open-logs').then(v=>toast('已打开日志文件夹：'+v.path,{ms:4500})).catch(error);
 
 /* SD import */
 let sdSupported=null,sdPlan=null,sdSig='',sdExcluded=new Set(),sdRunning=false,sdCorrupt=[];
-function sdRow(icon,title,sub,extra){let row=el('div','file');let d=el('div','detail');let n=el('div','filename',title);let r=el('div','rename',sub);r.title=sub;d.append(n,r);row.append(el('span','icon',icon),d);if(extra)row.append(extra);return row}
+function sdRow(icon,title,sub,extra){let row=el('div','file');let d=el('div','detail');let n=el('div','filename',title);let r=el('div','rename',sub);r.title=sub;d.append(n,r);let i=el('span','icon');i.innerHTML=ic(icon);row.append(i,d);if(extra)row.append(extra);return row}
 function sdSpace(p){let list=$('sdSpace');list.replaceChildren();if(!p||!p.cards.length)return;
-p.cards.filter(c=>!c.excluded&&c.total).forEach(c=>{let after=Math.min(c.total,c.free+c.size);list.append(driveCard({name:'SD 卡 · '+c.name,total:c.total,free:c.free,after},{after,flow:(f,add,arrow)=>{add('卡上可用',c.free,true);arrow();add('导入后',after,true);f.append(delta(after-c.free))}}))});
-p.targets.filter(t=>t.planned).forEach(t=>{let after=t.free-t.planned;list.append(driveCard({name:'存到 '+t.name,total:t.total,free:t.free,after},{after,flow:(f,add,arrow)=>{add('现在可用',t.free,true);arrow();add('导入后约',after,true);f.append(delta(after-t.free))}}))})}
+p.cards.filter(c=>!c.excluded&&c.total).forEach(c=>{let after=Math.min(c.total,c.free+c.size),card=newDriveCard();fillDrive(card,{name:'SD 卡 · '+c.name,total:c.total,free:c.free,after},[['卡上可用',c.free,null,true],['导入后',after,after-c.free,true]]);list.append(card)});
+p.targets.filter(t=>t.planned).forEach(t=>{let after=t.free-t.planned,card=newDriveCard();fillDrive(card,{name:'存到 '+t.name,total:t.total,free:t.free,after},[['现在可用',t.free,null,true],['导入后约',after,after-t.free,true]]);list.append(card)})}
 function sdRender(){let p=sdPlan;$('sdCards').replaceChildren();$('sdPlan').replaceChildren();sdSpace(p);if(!p)return;
-if(!p.cards.length){if(sdSupported===false){$('sdOpen').hidden=true;return}$('sdTag').textContent='未检测到 SD 卡';$('sdCards').append(sdRow('▭','请插入 SD 卡','插入后会自动出现在这里'));$('sdTargets').textContent='';$('sdGo').disabled=true;return}
-$('sdTag').textContent=p.cards.length+' 张卡 · '+p.count+' 个视频 · '+size(p.size);
+if(!p.cards.length){if(sdSupported===false){$('sdOpen').hidden=true;return}setText($('sdTag'),'未检测到 SD 卡');$('sdTag').classList.remove('live');$('sdCards').append(sdRow('card','请插入 SD 卡','插入后会自动出现在这里'));$('sdTargets').textContent='';$('sdGo').disabled=true;return}
+setText($('sdTag'),p.cards.length+' 张卡 · '+p.count+' 个视频 · '+size(p.size));$('sdTag').classList.add('live');
 p.cards.forEach(card=>{let box=el('label','queue-actions');let cb=el('input');cb.type='checkbox';cb.checked=!card.excluded;cb.disabled=sdRunning;cb.onchange=()=>{cb.checked?sdExcluded.delete(card.mount):sdExcluded.add(card.mount);sdLoad()};box.append(cb,'导入');let eject=el('button',null,'推出');eject.disabled=sdRunning;eject.onclick=()=>api('/sd/eject',{mounts:[card.mount]}).then(v=>{$('sdLogs').hidden=false;$('sdLogs').textContent=v.messages.join('\n');sdSig='';sdTick()}).catch(error);box.append(eject);
-$('sdCards').append(sdRow('▤',card.name,card.excluded?'本次不导入':card.count?`${card.count} 个视频 · ${size(card.size)}`+(card.proxies?` · ${card.proxies} 个代理文件将删除`:'')+(card.orphans?` · ${card.orphans} 个无对应视频的代理文件保留`:''):'没有 MP4 / OSV 视频',box))});
+$('sdCards').append(sdRow('card',card.name,card.excluded?'本次不导入':card.count?`${card.count} 个视频 · ${size(card.size)}`+(card.proxies?` · ${card.proxies} 个代理文件将删除`:'')+(card.orphans?` · ${card.orphans} 个无对应视频的代理文件保留`:''):'没有 MP4 / OSV 视频',box))});
 $('sdTargets').textContent=p.no_space.length?`⚠ ${p.no_space.length} 个文件所有硬盘都放不下`:'';
 let byFolder={};p.items.forEach(i=>{let key=i.status==='no_space'?'空间不足':((i.target_name||i.target.split(/[\\/]/).filter(Boolean).pop())+'/'+i.folder);(byFolder[key]=byFolder[key]||[]).push(i)});
-Object.entries(byFolder).forEach(([folder,list])=>{let first=list[0],last=list[list.length-1];$('sdPlan').append(sdRow('▷',folder+' · '+list.length+' 个 · '+size(list.reduce((a,i)=>a+i.size,0)),list.length>1?`${first.name} … ${last.name}`:first.name+(first.status==='copied'?'（上次已复制，只需核对后删除卡上原片）':'')+(list.some(i=>i.basis!=='文件名')?' · 部分按文件时间判断日期':'')))});
-let f=p.items.find(i=>i.name);if(f)$('sdExample').textContent='命名示例：'+f.source.split(/[\\/]/).pop()+' → '+(f.target_name||f.target.split(/[\\/]/).filter(Boolean).pop())+'/'+f.folder+'/'+f.name;
+Object.entries(byFolder).forEach(([folder,list])=>{let first=list[0],last=list[list.length-1];$('sdPlan').append(sdRow('calendar',folder+' · '+list.length+' 个 · '+size(list.reduce((a,i)=>a+i.size,0)),list.length>1?`${first.name} … ${last.name}`:first.name+(first.status==='copied'?'（上次已复制，只需核对后删除卡上原片）':'')+(list.some(i=>i.basis!=='文件名')?' · 部分按文件时间判断日期':'')))});
+let f=p.items.find(i=>i.name);if(f)$('sdExample').textContent=f.source.split(/[\\/]/).pop()+' → '+(f.target_name||f.target.split(/[\\/]/).filter(Boolean).pop())+'/'+f.folder+'/'+f.name;
 $('sdGo').disabled=sdRunning||!p.count}
-async function sdLoad(){try{sdPlan=await api('/sd/plan',{excluded:[...sdExcluded]});sdRender()}catch(e){$('sdTag').textContent='检测失败';error(e)}}
-function sdShowProgress(progress){let cards=Object.entries(progress);$('sdProgress').hidden=!cards.length;$('sdProgress').replaceChildren(...cards.map(([card,p])=>{let wrap=el('div');wrap.style.marginTop='10px';let pct=p.bytes_total?Math.min(100,p.bytes_done/p.bytes_total*100):0;wrap.innerHTML='<div class="progress-label"><b></b><span></span></div><div class="meter"><span></span></div><div class="muted"></div>';wrap.querySelector('b').textContent=card.split(/[\\/]/).pop();wrap.querySelector('.progress-label span').textContent=`${p.done||0} / ${p.total||0} · ${pct.toFixed(1)}%`;wrap.querySelector('.meter span').style.width=pct+'%';wrap.querySelector('.muted').textContent=(p.phase||'')+(p.file?' · '+p.file:'');return wrap}))}
-async function sdTick(){try{let v=await api('/sd/state');let was=sdRunning;sdRunning=v.running;sdSupported=v.supported;if(v.supported===false)$('sdOpen').hidden=true;$('sdStop').hidden=!v.running;$('sdRefresh').disabled=v.running;if(v.logs.length){$('sdLogs').hidden=false;$('sdLogs').textContent=v.logs.join('\n');$('sdLogs').scrollTop=$('sdLogs').scrollHeight}sdShowProgress(v.progress);let had=sdCorrupt.length;sdShowCorrupt(v.corrupt);if(!had&&sdCorrupt.length)sdOpenModal();let pr=Object.values(v.progress||{});$('sdBadge').textContent=v.running?`· 导入中 ${pr.reduce((a,p)=>a+(p.done||0),0)}/${pr.reduce((a,p)=>a+(p.total||0),0)}`:sdCorrupt.length?'· 有损坏文件':v.cards.length?`· ${v.cards.length} 张卡`:'';if(v.running){$('sdTag').textContent='正在移动';$('sdGo').disabled=true}let sig=v.cards.join('|');if(!v.running&&(sig!==sdSig||was)){let fresh=sig.split('|').some(m=>m&&!sdSig.split('|').includes(m));sdSig=sig;await sdLoad();if(fresh&&!was)sdOpenModal();if(was)refreshSpace()}}catch(e){$('sdTag').textContent='本地服务未连接'}setTimeout(sdTick,2500)}
-function sdShowCorrupt(list){sdCorrupt=list||[];$('sdCorrupt').hidden=!sdCorrupt.length;$('sdCorruptList').replaceChildren(...sdCorrupt.map(e=>sdRow('!',e.source.split(/[\\/]/).pop()+' · '+size(e.size),e.reason+' · '+(e.lrf?(e.lrf_ok?'LRF 已保存：':'LRF 已保存但也读不出：')+e.lrf.split(/[\\/]/).slice(-2).join('/'):'没有 LRF 可保存'))));$('sdRemoveCorrupt').disabled=sdRunning}
+async function sdLoad(){try{sdPlan=await api('/sd/plan',{excluded:[...sdExcluded]});sdRender()}catch(e){setText($('sdTag'),'检测失败');error(e)}}
+function sdShowProgress(progress){let cards=Object.entries(progress);$('sdProgress').hidden=!cards.length;let box=$('sdProgress');cards.forEach(([card,p],i)=>{let wrap=box.children[i];if(!wrap){wrap=el('div');wrap.style.marginTop='12px';wrap.innerHTML='<div class="progress-label"><b></b><span></span></div><div class="meter"><span></span></div><div class="muted" style="margin-top:4px"></div>';box.append(wrap)}let pct=p.bytes_total?Math.min(100,p.bytes_done/p.bytes_total*100):0;setText(wrap.querySelector('b'),card.split(/[\\/]/).pop());setText(wrap.querySelector('.progress-label span'),`${p.done||0} / ${p.total||0} · ${pct.toFixed(1)}%`);wrap.querySelector('.meter span').style.width=pct+'%';setText(wrap.querySelector('.muted'),(p.phase||'')+(p.file?' · '+p.file:''))});while(box.children.length>cards.length)box.lastChild.remove()}
+async function sdTick(){try{let v=await api('/sd/state');let was=sdRunning;sdRunning=v.running;sdSupported=v.supported;if(v.supported===false)$('sdOpen').hidden=true;$('sdStop').hidden=!v.running;$('sdRefresh').disabled=v.running;if(v.logs.length){$('sdLogs').hidden=false;let t=v.logs.join('\n');if($('sdLogs').textContent!==t){$('sdLogs').textContent=t;$('sdLogs').scrollTop=$('sdLogs').scrollHeight}}sdShowProgress(v.progress);let had=sdCorrupt.length;sdShowCorrupt(v.corrupt);if(!had&&sdCorrupt.length)sdOpenModal();let pr=Object.values(v.progress||{});setText($('sdBadge'),v.running?` · ${pr.reduce((a,p)=>a+(p.done||0),0)}/${pr.reduce((a,p)=>a+(p.total||0),0)}`:sdCorrupt.length?' · 有损坏文件':v.cards.length?` · ${v.cards.length} 张卡`:'');if(v.running){setText($('sdTag'),'正在移动');$('sdTag').classList.add('live');$('sdGo').disabled=true}let sig=v.cards.join('|');if(!v.running&&(sig!==sdSig||was)){let fresh=sig.split('|').some(m=>m&&!sdSig.split('|').includes(m));sdSig=sig;await sdLoad();if(fresh&&!was){sdOpenModal();toast('检测到 SD 卡')}if(was){refreshSpace();toast('SD 卡导入结束')}}}catch(e){setText($('sdTag'),'本地服务未连接')}setTimeout(sdTick,document.hidden?6000:2500)}
+function sdShowCorrupt(list){let sig=JSON.stringify(list||[]);if($('sdCorrupt').dataset.sig===sig)return;$('sdCorrupt').dataset.sig=sig;sdCorrupt=list||[];$('sdCorrupt').hidden=!sdCorrupt.length;$('sdCorruptList').replaceChildren(...sdCorrupt.map(e=>sdRow('alert',e.source.split(/[\\/]/).pop()+' · '+size(e.size),e.reason+' · '+(e.lrf?(e.lrf_ok?'LRF 已保存：':'LRF 已保存但也读不出：')+e.lrf.split(/[\\/]/).slice(-2).join('/'):'没有 LRF 可保存'))));$('sdRemoveCorrupt').disabled=sdRunning}
 $('sdRemoveCorrupt').onclick=async()=>{if(!sdCorrupt.length)return;let keep=$('sdKeepBroken').checked;if(!confirm(`将删除 SD 卡上 ${sdCorrupt.length} 个损坏视频及其 LRF`+(keep?'，固态硬盘上的损坏副本保留':'，以及固态硬盘上的损坏副本')+'。已保存到固态硬盘的 LRF 不受影响。SD 卡上的删除无法恢复。确定？'))return;try{let v=await api('/sd/remove-corrupt',{ids:sdCorrupt.map(e=>e.id),keep_ssd_copy:keep});$('sdLogs').hidden=false;$('sdLogs').textContent=v.messages.join('\n');sdSig=''}catch(e){error(e)}};
-function sdOpenModal(){$('sdModal').hidden=false}
-$('sdOpen').onclick=()=>{sdOpenModal();sdSig='';sdLoad()};$('sdClose').onclick=()=>$('sdModal').hidden=true;$('sdModal').onclick=e=>{if(e.target===$('sdModal'))$('sdModal').hidden=true};document.addEventListener('keydown',e=>{if(e.key==='Escape')$('sdModal').hidden=true});
-$('sdRefresh').onclick=()=>{sdSig='';sdLoad()};
+let lastFocus=null;
+function sdOpenModal(){if(!$('sdModal').hidden)return;lastFocus=document.activeElement;$('sdModal').hidden=false;setTimeout(()=>$('sdClose').focus(),50)}
+function closeModal(){let m=$('sdModal');if(m.hidden)return;m.style.transition='opacity .16s';m.style.opacity=0;setTimeout(()=>{m.hidden=true;m.style.opacity='';m.style.transition='';lastFocus?.focus?.()},160)}
+$('sdOpen').onclick=()=>{sdOpenModal();sdSig='';sdLoad()};$('sdClose').onclick=closeModal;$('sdModal').onclick=e=>{if(e.target===$('sdModal'))closeModal()};
+$('sdRefresh').onclick=()=>withBusy($('sdRefresh'),()=>{sdSig='';return sdLoad()});
 $('sdStop').onclick=()=>api('/sd/cancel').catch(error);
-$('sdGo').onclick=async()=>{if(!sdPlan)return;let folders=[...new Set(sdPlan.items.filter(i=>i.name).map(i=>(i.target_name||i.target.split(/[\\/]/).filter(Boolean).pop())+'/'+i.folder))];if(!confirm(`将 ${sdPlan.count} 个视频（${size(sdPlan.size)}）移动到：\n${folders.join('\n')}\n\n每个文件读回校验一致后，删除 SD 卡上的原片${sdPlan.proxy_count?'和 '+sdPlan.proxy_count+' 个同名代理文件':''}。SD 卡上删除的文件无法从回收站恢复。确定？`))return;try{await api('/sd/start',{plan_id:sdPlan.plan_id,eject:$('sdEject').checked});sdRunning=true;$('sdGo').disabled=true}catch(e){error(e);sdLoad()}};
+$('sdGo').onclick=async()=>{if(!sdPlan)return;let folders=[...new Set(sdPlan.items.filter(i=>i.name).map(i=>(i.target_name||i.target.split(/[\\/]/).filter(Boolean).pop())+'/'+i.folder))];if(!confirm(`将 ${sdPlan.count} 个视频（${size(sdPlan.size)}）移动到：\n${folders.join('\n')}\n\n每个文件读回校验一致后，删除 SD 卡上的原片${sdPlan.proxy_count?'和 '+sdPlan.proxy_count+' 个同名代理文件':''}。SD 卡上删除的文件无法从回收站恢复。确定？`))return;try{await api('/sd/start',{plan_id:sdPlan.plan_id,eject:$('sdEject').checked});sdRunning=true;$('sdGo').disabled=true;toast('开始导入：逐个复制、校验、删除')}catch(e){error(e);sdLoad()}};
 
-syncDelete();preview();poll();sdTick();fitChrome();
+$('add').title='选择视频（'+(isMac?'⌘':'Ctrl+')+'O）';$('go').title='开始（'+(isMac?'⌘':'Ctrl+')+'Enter）';
+syncDelete();preview();poll();sdTick();fitChrome();requestAnimationFrame(syncSeg);
 </script></html>

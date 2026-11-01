@@ -82,6 +82,12 @@ python tools/selftest.py
 - temp_storage.py：空间不足时暂存桌面 QingSave-Temporary，后台每 30 秒尝试 SHA-256 校验移回；temporary-storage.json 持久化待移回记录。移回前保留原片。两个位置均不足时等待空间。
 - 队列保存 return_path/temporary_storage；UI 可关闭新任务的临时存储。压缩与移回通过 IO_LOCK 串行；暂存成品在移回前不加入快速删除列表。
 
+## 前端约定
+- 两个页面共用一套设计变量（`:root` 里的 `--bg/--panel/--ink/--accent…`），跟随系统深色模式；图标是内联 SVG 线条（`ICON` 表 + `data-i` 属性），不要再用 ◈ ▤ 这类字符。
+- 列表按 id 增量更新（`taskRows` / `selRows` / `driveCards`），不要整列表 `replaceChildren`——那会让悬停、下拉框和动画每次轮询都重置。
+- 成功提示用 `toast()`，`#error` 只放错误。轮询在页面隐藏时放慢。全局 `[hidden]{display:none!important}`，因为 `button` 设了 `display:inline-flex`。
+- 快捷键：⌘/Ctrl+O 选择视频，⌘/Ctrl+Enter 开始，Esc 关闭 SD 弹窗。
+
 ## 空间显示
 - `/space`（POST `{selection:[{source,video,audio}], delete_mode}`）：每次最多花 2.5 秒跑 ffprobe，没估完的显示「估算中」，结果按「路径+大小+mtime」缓存。任务的 `estimated_size` / `raw_estimate` 存进 queue.json，完成时写进 events，供以后校正。
 - SD 弹窗用 `/sd/plan` 已有的 free/total/size/planned 画「卡上可用 → 导入后」和「目标盘 → 导入后」。
