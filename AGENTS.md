@@ -122,3 +122,7 @@ python tools/selftest.py
 ## 实时速率
 - 界面.html 的 `rate()` / `speedText()` 在前端按两次轮询之间的差值算平滑速率，不需要服务端存速度：压缩和完整检查显示「N× 实时」（视频秒/真实秒），读原片哈希、校验、移回、SD 导入显示 MB/s。位置：「当前」进度行、并行时每路阶段行、桌面暂存移回行、SD 弹窗每张卡。
 - `temp_storage._return_one` 移回时临时写 `phase/bytes_done/bytes_total`（不存盘，结束后清掉）供速率显示。
+
+## 拉取更新
+- 仓库已改为公开（用户认为代码不涉及隐私；提交前别把 token、个人路径写进去）。右上角「拉取更新」→ `POST /update` → `updater.run()`：有 `.git` 且装了 git 时 `git fetch` + `merge --ff-only`（本地有没推送的改动会拒绝，不会覆盖）；便携 Windows 包没有 `.git`，就下载 GitHub zip，只覆盖根目录程序文件和 `vendor/`、`tools/`，旧文件备份在 `.update-backup/`，版本号写在 `.version`。`bin/`、`runtime/`、数据目录不动。
+- 更新后先对所有 `*.py` 做语法检查，失败就回滚（git 用 `reset --keep`，zip 用备份）。有压缩 / 导入 / 素材库任务在跑时拒绝更新。成功后服务 `shutdown()`（队列存盘），主线程退出循环后 `updater.relaunch` 用同样参数和**同一端口**重启（POSIX 用 `os.execv` 保持 pid，Dock app 不会掉线；Windows 起新的无窗口进程）。页面轮询 `/health` 后自动刷新。新增模块文件要放在仓库根目录，zip 方式才会带上。
