@@ -118,3 +118,7 @@ python tools/selftest.py
 
 ## 原片默认删除
 - 用户要求默认删除原片：「压缩并校验通过后，原片」默认「彻底删除」，选择通过 `/preferences` 存进数据目录 `preferences.json`，下次打开沿用（Dock app 每次端口不同，localStorage 记不住，所以存服务端）。删除仍要先通过完整校验，开始前仍弹确认。
+
+## 实时速率
+- 界面.html 的 `rate()` / `speedText()` 在前端按两次轮询之间的差值算平滑速率，不需要服务端存速度：压缩和完整检查显示「N× 实时」（视频秒/真实秒），读原片哈希、校验、移回、SD 导入显示 MB/s。位置：「当前」进度行、并行时每路阶段行、桌面暂存移回行、SD 弹窗每张卡。
+- `temp_storage._return_one` 移回时临时写 `phase/bytes_done/bytes_total`（不存盘，结束后清掉）供速率显示。

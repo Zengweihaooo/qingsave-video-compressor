@@ -119,12 +119,15 @@ def _return_one(entry):
             if prior.get('output_sha256') != expected or c.digest(target, STOP) != expected:
                 raise FileExistsError('目标已存在，未覆盖；桌面副本保留')
         else:
+            entry.update(phase='复制', bytes_done=0, bytes_total=staged.stat().st_size)  # live, for the speed readout; not saved
             with staged.open('rb') as inp, partial.open('xb') as out:
                 while block := inp.read(4 * 1024 * 1024):
                     if STOP.is_set(): raise RuntimeError('退出时暂停移回，桌面副本保留')
                     out.write(block)
+                    entry['bytes_done'] += len(block)
                 out.flush(); os.fsync(out.fileno())
-            if c.digest(partial, STOP) != expected:
+            entry.update(phase='读回校验', bytes_done=0)
+            if c.digest(partial, STOP, lambda done, total: entry.update(bytes_done=done, bytes_total=total)) != expected:
                 raise ValueError('移回校验不一致，桌面副本保留')
             # Windows rename refuses an existing destination; POSIX link also refuses overwrite.
             if os.name == 'nt': os.rename(partial, target)
@@ -154,6 +157,7 @@ def _return_one(entry):
         return True
     finally:
         partial.unlink(missing_ok=True)
+        for key in ('phase', 'bytes_done', 'bytes_total'): entry.pop(key, None)
 
 def return_one(entry):
     if entry.get('status')=='encoding':return False
