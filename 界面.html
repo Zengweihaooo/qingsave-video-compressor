@@ -167,6 +167,9 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
   <div class="field" id="outputField" hidden><input id="output" type="text" placeholder="请选择保存位置" aria-label="输出文件夹"><button id="folder">浏览</button></div>
   <label class="caption" for="delete_mode">压缩并校验通过后，原片</label><select id="delete_mode" aria-label="删除方式"><option value="keep">保留原片</option><option value="trash">移入回收站</option><option value="permanent" selected>彻底删除（腾出空间最多）</option></select>
   <p class="tiny" id="deleteHint" style="margin-top:6px"></p></div>
+  <div style="margin-top:12px"><label class="check" style="margin-top:0"><input type="checkbox" id="folderTags" checked><span>按内容给日期文件夹加后缀</span></label>
+  <p class="tiny" style="margin-top:4px">全是原片 → <b>10.31_ORG</b>，全是压缩版 → <b>10.15_CMP</b>，混着放不加。处理完自动更新，改名可撤销。</p>
+  <div class="row" style="margin-top:6px;gap:6px"><button id="tagNow" class="ghost" style="font-size:12px">现在整理</button><button id="tagUndo" class="ghost" style="font-size:12px">撤销全部后缀</button></div></div>
  <div class="sec"><h3>预计效果</h3><div class="plan" id="planBox">先在左侧选择视频</div></div>
  <details class="more"><summary data-i="chev">更多设置</summary>
   <div class="sec"><h3>文件名</h3><div class="fields"><div><label class="caption" for="suffix">时间后的文字</label><input id="suffix" type="text" value="CMP"></div><div><label class="caption" for="start">无编号时起始</label><input id="start" type="number" min="0" value="1"></div><div><label class="caption" for="width">位数</label><input id="width" type="number" min="1" max="10" value="3"></div></div><div class="example" id="example">命名示例：08.22/20260921_143025_CMP_001.mp4</div></div>
@@ -288,7 +291,12 @@ $('folder').onclick=async()=>{try{let v=await api('/pick',{kind:'folder'});if(v.
 const deleteHints={keep:'原片保留，硬盘会多出压缩版的空间。',trash:'原片进回收站：要清空回收站后空间才会释放。',permanent:'校验通过后原片直接删除，空间立刻释放，无法从回收站找回。'};
 function syncDelete(){setText($('deleteHint'),deleteHints[$('delete_mode').value]+'会记住这个选择。');refreshSpace()}
 $('delete_mode').onchange=()=>{syncDelete();api('/preferences',{delete_mode:$('delete_mode').value}).catch(()=>{})};
-api('/preferences').then(p=>{if(p.delete_mode&&$('delete_mode').value!==p.delete_mode){$('delete_mode').value=p.delete_mode}syncDelete()}).catch(()=>{});
+api('/preferences').then(p=>{if(p.delete_mode&&$('delete_mode').value!==p.delete_mode){$('delete_mode').value=p.delete_mode}$('folderTags').checked=p.folder_tags!==false;syncDelete()}).catch(()=>{});
+$('folderTags').onchange=()=>api('/preferences',{folder_tags:$('folderTags').checked}).then(()=>toast($('folderTags').checked?'会自动给日期文件夹加 _ORG / _CMP':'不再自动改文件夹名')).catch(e=>toast(e.message,{bad:true}));
+$('tagNow').onclick=()=>withBusy($('tagNow'),async()=>{try{let r=await api('/folder-tags',{action:'apply'});if(r.busy){toast('正在处理视频，处理完会自动整理',{bad:true});return}
+let msg=r.done.length?'已改名 '+r.done.length+' 个：'+r.done.slice(0,4).map(i=>i.from+' → '+i.to).join('，')+(r.done.length>4?' …':''):'文件夹后缀都已经是对的';
+if(r.skipped.length)msg+='；跳过 '+r.skipped.length+' 个（'+r.skipped[0].from+'：'+r.skipped[0].reason+'）';if(r.failed.length)msg+='；'+r.failed.length+' 个没改成：'+r.failed[0].reason;toast(msg,{ms:7000,bad:!!r.failed.length});refreshSpace()}catch(e){toast(e.message,{bad:true})}});
+$('tagUndo').onclick=()=>withBusy($('tagUndo'),async()=>{if(!confirm('把轻存加过后缀的文件夹全部改回原名？（之后自动整理还会再加，需要的话先关掉上面的勾）'))return;try{let r=await api('/folder-tags',{action:'undo'});toast(r.restored.length?'已改回 '+r.restored.length+' 个文件夹':'没有可撤销的改名')}catch(e){toast(e.message,{bad:true})}});
 
 /* scan */
 $('scanToggle').onclick=()=>{let d=$('scanDrawer');d.hidden=!d.hidden;$('scanToggle').setAttribute('aria-expanded',!d.hidden);$('scanToggle').classList.toggle('primary',!d.hidden);if(!d.hidden)$('libraryRoot').focus()};

@@ -23,6 +23,7 @@ import applog
 import temp_storage as storage
 import space
 import updater
+import folder_tags
 import time
 import processing_time
 import pipeline_runtime as pipeline
@@ -134,7 +135,7 @@ def find_storage_dir(month, day, roots):
             parsed = date_dir_parts(child.name)
             if not parsed or (parsed[0], parsed[1]) != (month, day):
                 continue
-            (exact if child.name == token else described).append(child)
+            (exact if folder_tags.strip_tag(child.name) == token else described).append(child)
     pool = described or exact
     if not pool:
         return None
@@ -612,6 +613,45 @@ def space_summary(data):
                 item['raw_estimate'] = learned[item['id']].get('raw_estimate')
     return result
 
+def preferences():
+    # defaults: delete originals once verified; tag date folders _ORG / _CMP by what they hold
+    return {'delete_mode': 'permanent', 'folder_tags': True, **(applog.load_json('preferences.json', {}) or {})}
+
+TAG_LOCK = threading.Lock()
+
+def working():
+    with task_condition:
+        busy = state['busy'] or bool(active_owners)
+    return busy or sd.job['running'] or library.job['running']
+
+def locked_paths():
+    """Folders 轻存 still has to find under their current name: unfinished tasks and files waiting to move back."""
+    with task_condition:
+        paths = [p for t in tasks if t['status'] in ('pending', 'running', 'interrupted') for p in (t['source'], t['output'])]
+    paths += [p for e in storage.snapshot() for p in (e.get('target'), e.get('source')) if p]
+    return paths
+
+def retag():
+    """Give each date folder the tag that fits its content now (only while nothing is being processed)."""
+    if working():
+        return {'done': [], 'failed': [], 'skipped': [], 'busy': True}
+    with TAG_LOCK:
+        changes, skipped = folder_tags.plan(library_roots(), locked_paths())
+        done, failed = folder_tags.apply(changes)
+    for item in done: applog.write('文件夹后缀', f"{item['from']} → {item['to']}")
+    for item in failed: applog.write('文件夹后缀', f"{item['from']} 没能改名：{item['reason']}")
+    return {'done': done, 'failed': failed, 'skipped': skipped, 'busy': False}
+
+def tag_loop():
+    """Keep folder tags right after compressing / importing finishes."""
+    while True:
+        time.sleep(60)
+        try:
+            if preferences().get('folder_tags'):
+                retag()
+        except Exception as error:
+            applog.write('文件夹后缀', f'出错：{error}')
+
 def storage_returned(entry):
     with task_condition:
         item = next((i for i in tasks if i['id'] == entry['id']), None)
@@ -907,10 +947,25 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/space':
                 self.reply(space_summary(data)); return
             if self.path == '/preferences':
-                prefs = {'delete_mode': 'permanent', **(applog.load_json('preferences.json', {}) or {})}  # default: delete originals once verified
+                prefs = preferences()
                 if data.get('delete_mode') in ('keep', 'trash', 'permanent'):
-                    prefs['delete_mode'] = data['delete_mode']; applog.save_json('preferences.json', prefs)
+                    prefs['delete_mode'] = data['delete_mode']
+                if isinstance(data.get('folder_tags'), bool):
+                    prefs['folder_tags'] = data['folder_tags']
+                if data: applog.save_json('preferences.json', prefs)
                 self.reply(prefs); return
+            if self.path == '/folder-tags':
+                action = data.get('action', 'plan')
+                if action == 'undo':
+                    if working(): raise ValueError('正在处理，请等处理完再撤销')
+                    with TAG_LOCK:
+                        restored = [e for root in library_roots() for e in folder_tags.undo(root)]
+                    for e in restored: applog.write('文件夹后缀', f"撤销：{e['to']} → {e['from']}")
+                    self.reply({'restored': restored}); return
+                if action == 'apply':
+                    self.reply(retag()); return
+                changes, skipped = folder_tags.plan(library_roots(), locked_paths())
+                self.reply({'changes': changes, 'skipped': skipped}); return
             if self.path == '/pipeline':
                 if data:
                     with task_condition:
@@ -1072,7 +1127,7 @@ if __name__=='__main__':
     interrupted = load_queue()
     threading.Thread(target=storage.monitor, args=(storage_returned,), daemon=True).start()
     DRAINER['on'] = True
-    for target in (drain_events, queue_saver, probe_hardware):
+    for target in (drain_events, queue_saver, probe_hardware, tag_loop):
         threading.Thread(target=target, daemon=True).start()
     applog.write('轻存', f'已启动 {url}' + (f'，上次有 {interrupted} 个任务没做完' if interrupted else ''))
     print('视频压缩页面已启动：'+url+'\n运行期间请保留此窗口。在页面右上角点「退出轻存」，或按 Ctrl+C 退出。')

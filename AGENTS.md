@@ -126,3 +126,8 @@ python tools/selftest.py
 ## 拉取更新
 - 仓库已改为公开（用户认为代码不涉及隐私；提交前别把 token、个人路径写进去）。右上角「拉取更新」→ `POST /update` → `updater.run()`：有 `.git` 且装了 git 时 `git fetch` + `merge --ff-only`（本地有没推送的改动会拒绝，不会覆盖）；便携 Windows 包没有 `.git`，就下载 GitHub zip，只覆盖根目录程序文件和 `vendor/`、`tools/`，旧文件备份在 `.update-backup/`，版本号写在 `.version`。`bin/`、`runtime/`、数据目录不动。
 - 更新后先对所有 `*.py` 做语法检查，失败就回滚（git 用 `reset --keep`，zip 用备份）。有压缩 / 导入 / 素材库任务在跑时拒绝更新。成功后服务 `shutdown()`（队列存盘），主线程退出循环后 `updater.relaunch` 用同样参数和**同一端口**重启（POSIX 用 `os.execv` 保持 pid，Dock app 不会掉线；Windows 起新的无窗口进程）。页面轮询 `/health` 后自动刷新。新增模块文件要放在仓库根目录，zip 方式才会带上。
+
+## 文件夹后缀
+- `folder_tags.py`：库根目录下的日期文件夹（`MM.DD…`）按直接放在里面的视频改名：全是原片 → `_ORG`，全是压缩版 → `_CMP`，混放 / 认不出 / 没视频 → 不加（已有的不合适后缀会去掉）。按文件名判断：`CMP`/`compressed` 是压缩版，`ORG`/`original` 或相机原名 `CAM_`/`DJI_` 是原片，`_LRF` 代理不算。损坏而保留的原片会让那个文件夹算混放。
+- 只在没有压缩 / 导入 / 扫描时改；有 `.partial.mp4`、`.qingsave-return`，或未完成任务、待移回暂存还指向的文件夹跳过。`web_app.tag_loop` 每 60 秒按 `preferences.json` 的 `folder_tags`（默认开）整理一次；页面「保存与原片」里可关掉、「现在整理」、「撤销全部后缀」。每次改名记在 `<根>/.qingsave/folder-tags-log.jsonl`。
+- `find_storage_dir` 把 `10.31_ORG` 当作 `10.31` 本身（不当描述），压缩归档 / SD 导入会继续用这个文件夹，之后后缀自动更新；`library.parse_folder` 也先去掉后缀。

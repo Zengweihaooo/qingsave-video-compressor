@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 import compressor as c
+import folder_tags
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.osv'}
 SIDECAR_EXTENSIONS = {'.lrf', '.thm', '.scr'}
@@ -65,8 +66,9 @@ def _valid(y, m, d):
 
 def parse_folder(name):
     """Return {'level', 'year', 'month', 'day', 'desc'} or None for a folder name."""
+    name = folder_tags.strip_tag(name.strip())  # 10.31_ORG is still 10.31; the tag is not a description
     for level, pattern in FOLDER_PATTERNS:
-        match = pattern.match(name.strip())
+        match = pattern.match(name)
         if not match:
             continue
         g = match.groups()

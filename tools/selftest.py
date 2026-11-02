@@ -237,6 +237,34 @@ def test_name_clash(base):
 
 
 
+def test_folder_tags(base):
+    print('文件夹后缀')
+    import folder_tags as ft
+    import library
+    root = base / 'tags'
+    for rel in ('10.31/20261031_214333_ORG_001.mp4', '10.31/20261031_214333_ORG_001_LRF.mp4', '10.15/20261015_160907_CMP_001.mp4',
+                '10.21/20261021_201840_ORG_006.mp4', '10.21/20261021_201840_CMP_006.mp4', '10.12 学校/CAM_20261012101010_0001_D.MP4',
+                '10.13/IMG_0001.MOV', '10.14_ORG/20261014_101010_CMP_001.mp4', '旅行/20261015_160907_ORG_009.mp4',
+                '10.16/20261016_101010_ORG_001.mp4', '10.16/.0123.partial.mp4', '10.17/20261017_101010_ORG_001.mp4'):
+        p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(b'x')
+    changes, skipped = ft.plan([root], locked=[str(root / '10.17/20261017_101010_ORG_001.mp4')])
+    got = {c['from']: c['to'] for c in changes}
+    check(got.get('10.31') == '10.31_ORG', '全是原片（代理不算）→ _ORG')
+    check(got.get('10.15') == '10.15_CMP', '全是压缩版 → _CMP')
+    check(got.get('10.12 学校') == '10.12 学校_ORG', '带描述的日期文件夹：相机原名算原片，后缀加在最后')
+    check(got.get('10.14_ORG') == '10.14_CMP', '内容变了：后缀跟着改')
+    check('10.21' not in got and '10.13' not in got and '旅行' not in got, '混放 / 认不出 / 非日期文件夹不改')
+    check({s['from'] for s in skipped} >= {'10.16', '10.17'}, '正在写入或队列还要用的文件夹跳过')
+    done, failed = ft.apply(changes)
+    check((root / '10.31_ORG').is_dir() and (root / '10.15_CMP').is_dir() and not failed, '改名')
+    check(library.parse_folder('10.31_ORG')['desc'] == '' and library.parse_folder('10.12 学校_ORG')['desc'] == '学校', '素材日历不把后缀当描述')
+    (root / '10.31_ORG/20261031_220000_CMP_002.mp4').write_bytes(b'x')
+    ft.apply(ft.plan([root])[0])
+    check((root / '10.31').is_dir(), '变成混放后去掉后缀')
+    restored = ft.undo(root)
+    check(restored and (root / '10.15').is_dir() and (root / '10.12 学校').is_dir() and (root / '10.31').is_dir(), '撤销改回原名')
+
+
 def test_space(base):
     print('空间预估')
     import space
@@ -269,5 +297,6 @@ if __name__ == '__main__':
         test_sd_resume(base)
         test_name_clash(base)
         test_space(base)
+        test_folder_tags(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)
