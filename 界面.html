@@ -122,7 +122,7 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
 </style>
 <header class="top"><div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="currentColor"/><path d="M7 15.5 12 8l5 7.5" stroke="var(--panel)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 17.5h7" stroke="var(--panel)" stroke-width="2" stroke-linecap="round"/></svg>轻存</div>
 <nav class="nav"><a class="on" href="/">视频压缩</a><a href="/library">素材日历与整理</a></nav><span class="spacer"></span>
-<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
+<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><button id="updateApp" class="ghost" data-i="sync" title="从 GitHub 取最新版，更新后自动重启（有任务在处理时不能更新）">拉取更新</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
 
 <section class="strip" id="spaceStrip" aria-label="硬盘空间" aria-busy="true"><div class="skeleton" style="flex:1 1 280px;max-width:480px"></div><div class="skeleton" style="flex:0 0 230px"></div></section>
 
@@ -217,7 +217,7 @@ const isMac=/Mac/.test(navigator.platform);if(isMac)$('libraryRoot').value='/Vol
 const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* icons: 24px line set, drawn with currentColor */
-const ICON={plus:'<path d="M12 5v14M5 12h14"/>',card:'<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M10 3v4M13 3v4"/>',doc:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',power:'<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',calendar:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',film:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',pause:'<path d="M9 6v12M15 6v12"/>',play:'<path d="M8 5.5v13l10-6.5z"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',chev:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',alert:'<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',drive:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'};
+const ICON={sync:'<path d="M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',plus:'<path d="M12 5v14M5 12h14"/>',card:'<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M10 3v4M13 3v4"/>',doc:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',power:'<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',calendar:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',film:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',pause:'<path d="M9 6v12M15 6v12"/>',play:'<path d="M8 5.5v13l10-6.5z"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',chev:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',alert:'<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',drive:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'};
 function ic(name){return `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]||''}</svg>`}
 document.querySelectorAll('[data-i]').forEach(e=>e.insertAdjacentHTML('afterbegin',ic(e.dataset.i)));
 
@@ -310,6 +310,14 @@ $('match').onclick=async()=>{try{let v=await api('/pick',{kind:'records'});if(!v
 $('quick').onclick=async()=>{try{if($('delete_mode').value==='keep')throw Error('请先在「原片」里选择回收站或彻底删除');if(!confirmDeletion())return;await api('/quick-delete',{mode:$('delete_mode').value});running(true);showTab('log')}catch(e){error(e)}};
 function confirmDeletion(){let mode=$('delete_mode').value;if(mode==='keep')return true;return confirm(mode==='permanent'?'校验通过的原片将被彻底删除，无法从回收站恢复。确定？':'校验通过后将原片移入回收站，确定？')}
 
+/* update from GitHub */
+$('updateApp').onclick=()=>withBusy($('updateApp'),async()=>{
+if(busy){toast('正在处理视频，请等处理完再更新',{bad:true});return}
+let r;try{r=await api('/update',{})}catch(e){toast(e.message,{bad:true});return}
+if(!r.changed){toast('已经是最新版（'+r.new+'）');return}
+document.body.innerHTML='<div style="font-family:system-ui;max-width:520px;margin:120px auto;text-align:center"><h2>已更新到 '+r.new+'，正在重启…</h2><p style="opacity:.7">'+(r.subject||'').replace(/[<>&]/g,'')+'</p><p id="upMsg" style="opacity:.7">稍等几秒，页面会自动刷新。</p></div>';
+for(let i=0;i<60;i++){await new Promise(x=>setTimeout(x,1000));try{let h=await fetch('/health',{cache:'no-store'});if(h.ok){location.reload();return}}catch(e){}}
+document.getElementById('upMsg').textContent='没能自动重新连上。请重新打开轻存（Dock 图标或「重新打开轻存页面」）。'});
 /* progress */
 function etaText(s){return s==null?'估算中':clock(Math.ceil(s))}
 const chipKeys=[['current_elapsed','本个已用',clock],['phase_eta','本阶段剩余',etaText],['current_eta','本个剩余',etaText],['queue_eta','队列剩余',etaText],['processing_elapsed','累计处理',clock]];

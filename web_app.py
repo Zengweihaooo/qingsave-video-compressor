@@ -22,6 +22,7 @@ import library
 import applog
 import temp_storage as storage
 import space
+import updater
 import time
 import processing_time
 import pipeline_runtime as pipeline
@@ -808,6 +809,7 @@ def enqueue(data):
 
 SERVER = {'httpd': None, 'quit_button': True}
 DRAINER = {'on': False}
+RESTART = {'on': False}
 
 def shutdown():
     """Stop the running step safely (originals untouched), keep the rest of the queue for next time, then exit."""
@@ -935,6 +937,16 @@ class Handler(BaseHTTPRequestHandler):
                 if sys.platform == 'win32': os.startfile(str(applog.LOG_DIR))  # noqa: S606
                 else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(applog.LOG_DIR)])
                 self.reply({'path': str(applog.LOG_DIR)}); return
+            if self.path == '/update':
+                with task_condition:
+                    working = state['busy'] or bool(active_owners)
+                if working or sd.job['running'] or library.job['running']:
+                    raise ValueError('正在处理视频或导入，请等处理完再更新（更新会重启轻存）')
+                result = updater.run()
+                if result['changed']:
+                    RESTART['on'] = True
+                    threading.Thread(target=lambda: (__import__('time').sleep(1), shutdown()), daemon=True).start()
+                self.reply(result); return
             if self.path == '/quit':
                 threading.Thread(target=shutdown, daemon=True).start()
                 self.reply({}); return
@@ -1071,3 +1083,6 @@ if __name__=='__main__':
     if (applog.load_json('instance.json') or {}).get('pid') == os.getpid():
         try: (applog.DATA_DIR / 'instance.json').unlink()
         except OSError: pass
+    if RESTART['on']:
+        applog.write('轻存', '已更新，正在重新启动')
+        updater.relaunch(server.server_port)
