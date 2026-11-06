@@ -193,7 +193,9 @@ def output_name(path, suffix, number, width, timestamp=None):
     if re.search(r'[<>:"/\\|?*\x00-\x1f{}]', suffix) or suffix.endswith(('.', ' ')):
         raise ValueError('后缀含有不可用于文件名的字符')
     proxy = '_LRF' if re.search(r'_LRF$', Path(path).stem, re.I) else ''  # keep a camera proxy recognisable, not CMP_006-2
-    return f'{timestamp or stamp(path)}{("_" + suffix) if suffix else ""}_{output_sequence(path, number, width)}{proxy}.mp4'
+    # The recording time was reconstructed by hand (camera clock was wrong), so the compressed copy says so too.
+    approx = '_APPROX' if re.search(r'(?:^|_)APPROX(?=_|$)', Path(path).stem, re.I) else ''
+    return f'{timestamp or stamp(path)}{approx}{("_" + suffix) if suffix else ""}_{output_sequence(path, number, width)}{proxy}.mp4'
 
 DAMAGED = (('moov atom not found', '原片已损坏（相机录制中断，缺少文件索引），无法压缩；原片已保留，可用 untrunc 修复'),
            ('Invalid data found when processing input', '原片已损坏（读不出视频数据），无法压缩；原片已保留'),
