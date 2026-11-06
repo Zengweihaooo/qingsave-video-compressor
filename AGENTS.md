@@ -132,6 +132,9 @@ python tools/selftest.py
 - 只在没有压缩 / 导入 / 扫描时改；有 `.partial.mp4`、`.qingsave-return`，或未完成任务、待移回暂存还指向的文件夹跳过。`web_app.tag_loop` 每 60 秒按 `preferences.json` 的 `folder_tags`（默认开）整理一次；页面「保存与原片」里可关掉、「现在整理」、「撤销全部后缀」。每次改名记在 `<根>/.qingsave/folder-tags-log.jsonl`。
 - `find_storage_dir` 把 `10.31_ORG` 当作 `10.31` 本身（不当描述），压缩归档 / SD 导入会继续用这个文件夹，之后后缀自动更新；`library.parse_folder` 也先去掉后缀。
 
-## 相机时钟错误与 APPROX
-- 相机时钟没设好的片段，按用户给的参照时刻整体平移后，文件名中间加 `APPROX`（`20261030_110735_APPROX_ORG_001.mp4`），表示时间是推算的；压缩后保留为 `…_APPROX_CMP_001.mp4`（`compressor.output_name`）。
-- 2026-11 已处理 Data 盘 `02.06_ORG` → `10.30_ORG`（Osmo Action 3 记成 2022-02-06；参照：003 播放 15:01 = 2026-10-30 11:53:39）。文件内 mvhd/tkhd/mdhd 时间原位改写、mtime 同步平移，旧值逐字段记在 `<根>/.qingsave/retime-log.jsonl`，可据此还原。
+## 时间校准（工具菜单）
+- 右上角「工具 → 时间校准…」（不常用，所以放二级菜单）。`retime.py` + `POST /retime`（plan / apply / undo / last）。选一个文件夹，两种方式：对照一个时刻（某段视频播放到 mm:ss 时的真实时间）或按时区 / 固定时长平移。文件夹里所有文件名带时间的视频平移同样的量，间隔不变。
+- 一起改：文件名里的时间（可选加 `_APPROX` 表示推算）、MP4 头里 mvhd/tkhd/mdhd 的时间（原位改写固定长度字段，按电脑本地时区换算成 UTC，画面声音不动）、mtime、`<视频>.dji.json` 记录；全部落在同一天时日期文件夹（`02.06_ORG` → `10.30_ORG`）跟着改名。
+- 每个旧值先写进 `<根>/.qingsave/retime-log.jsonl`（按 batch）再改，撤销逐字节恢复；用过的根目录记在数据目录 `retime-roots.json`，供「撤销上一次」查找。处理中 / 队列还要用的文件夹拒绝。
+- 压缩带 `APPROX` 的原片，成品保留标记：`…_APPROX_CMP_001.mp4`（`compressor.output_name`）。
+- 2026-11 已手动校准 Data 盘 `02.06_ORG` → `10.30_ORG`（Osmo Action 3 记成 2022-02-06；003 播放 15:01 = 2026-10-30 11:53:39），记录在 batch `manual-20261106`。

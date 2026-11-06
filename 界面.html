@@ -101,6 +101,11 @@ table.levels{width:100%;font-size:11.5px;border-collapse:collapse}table.levels t
 .modal-box .title{display:flex;align-items:center;gap:12px;margin-bottom:8px;padding-right:36px}.modal-box h2{font-size:16px;font-weight:650;margin:0;flex:1}
 .modal-box .files .file{padding:9px 2px}.space-list{display:grid;gap:8px;margin-top:12px}.space-list .drive{max-width:none;min-width:0;box-shadow:none;background:var(--sunk)}
 .bottom{display:flex;gap:8px;margin-top:16px}.bottom .primary{flex:1;padding:9px}
+.menu-wrap{position:relative}.menu{position:absolute;right:0;top:calc(100% + 6px);min-width:200px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--pop);padding:5px;z-index:40;display:grid;animation:pop .18s var(--ease)}.menu button{justify-content:flex-start;border:0;background:transparent;box-shadow:none;padding:8px 10px;font-weight:450}.menu button:hover:not(:disabled){background:var(--hover)}.menu .tiny{padding:2px 10px 6px}
+.rt-grid{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:8px;margin-top:6px}.rt-grid label.caption{margin-top:0}.rt-modes{display:flex;gap:16px;margin-top:12px;flex-wrap:wrap}.rt-modes label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;font-size:13px}
+input[type=datetime-local]{width:100%;min-width:0;background:var(--sunk);border:1px solid var(--line);border-radius:var(--rs);padding:5px 8px}
+.rt-list{max-height:34vh;overflow:auto;margin-top:10px;border:1px solid var(--line2);border-radius:var(--rs)}.rt-row{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:12px;font-variant-numeric:tabular-nums}.rt-row:last-child{border-bottom:0}.rt-row .old{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rt-row .new{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}.rt-row.ref{background:var(--accent-soft,var(--sunk))}.rt-row.bad .new{color:var(--bad)}
+@media(max-width:560px){.rt-grid{grid-template-columns:1fr}.rt-row{grid-template-columns:1fr}.rt-row>span:nth-child(2){display:none}}
 #sdLogs{max-height:150px;overflow:auto;border-radius:var(--rs);margin-top:12px;background:var(--sunk)}#sdLogs[hidden]{display:none}
 details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:10px}
 /* toasts */
@@ -122,7 +127,7 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
 </style>
 <header class="top"><div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="currentColor"/><path d="M7 15.5 12 8l5 7.5" stroke="var(--panel)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 17.5h7" stroke="var(--panel)" stroke-width="2" stroke-linecap="round"/></svg>轻存</div>
 <nav class="nav"><a class="on" href="/">视频压缩</a><a href="/library">素材日历与整理</a></nav><span class="spacer"></span>
-<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><button id="updateApp" class="ghost" data-i="sync" title="从 GitHub 取最新版，更新后自动重启（有任务在处理时不能更新）">拉取更新</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
+<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><span class="menu-wrap"><button id="toolsBtn" class="ghost" data-i="dots" aria-haspopup="true" aria-expanded="false">工具</button><div class="menu" id="toolsMenu" hidden><button id="openRetime" data-i="clock">时间校准…</button><div class="tiny">相机时间或时区设错时用</div></div></span><button id="updateApp" class="ghost" data-i="sync" title="从 GitHub 取最新版，更新后自动重启（有任务在处理时不能更新）">拉取更新</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
 
 <section class="strip" id="spaceStrip" aria-label="硬盘空间" aria-busy="true"><div class="skeleton" style="flex:1 1 280px;max-width:480px"></div><div class="skeleton" style="flex:0 0 230px"></div></section>
 
@@ -205,6 +210,21 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
  <div id="sdCorrupt" class="note" style="background:var(--bad-soft);color:var(--ink);border-color:transparent;margin-top:12px" hidden><b>损坏的视频</b><p style="margin-top:4px">这些 MP4 读不出来（通常是录制时没电或强行拔卡）。能用的 LRF 低清版已经复制到固态硬盘（文件名带 _LRF）。确认后删除卡上的损坏原片和 LRF，以及固态硬盘上的损坏副本；固态硬盘上的 LRF 保留。</p><div id="sdCorruptList" class="files"></div><label class="check"><input type="checkbox" id="sdKeepBroken"><span>保留固态硬盘上的损坏原片（只留一份，以后可尝试修复）</span></label><div style="margin-top:8px"><button class="primary" id="sdRemoveCorrupt">确认移除损坏文件</button></div></div>
  <pre id="sdLogs" hidden></pre>
 </div></div>
+<div id="rtModal" class="modal" hidden><div class="modal-box"><button class="modal-close" id="rtClose" data-i="x" aria-label="关闭"></button>
+ <div class="title"><h2>时间校准</h2></div>
+ <p class="muted">相机时间或时区设错时，把一个文件夹里的视频整体平移，视频之间的间隔不变。会一起改：文件名里的时间、视频里记录的拍摄时间、文件修改时间，日期文件夹也可跟着改名。画面和声音不动，可以撤销。</p>
+ <label class="caption">文件夹</label>
+ <div style="display:flex;gap:6px"><input type="text" id="rtFolder" placeholder="选择要校准的文件夹，例如 Data/02.06_ORG"><button id="rtPick">浏览</button></div>
+ <div class="rt-modes"><label><input type="radio" name="rtMode" value="reference" checked>对照一个确定的时刻</label><label><input type="radio" name="rtMode" value="offset">按时区 / 固定时长平移</label></div>
+ <div id="rtRefBox" class="rt-grid"><div><label class="caption">哪段视频</label><select id="rtRef"></select></div><div><label class="caption">播放到（分:秒）</label><input type="text" id="rtPos" placeholder="15:01"></div><div><label class="caption">那一刻的真实时间</label><input type="datetime-local" id="rtReal" step="1"></div></div>
+ <div id="rtOffBox" class="rt-grid" hidden><div><label class="caption">小时（可为负）</label><input type="number" id="rtHours" step="1" value="0"></div><div><label class="caption">分钟</label><input type="number" id="rtMins" step="1" value="0"></div><div><label class="caption">天（可为负）</label><input type="number" id="rtDays" step="1" value="0"></div></div>
+ <label class="check"><input type="checkbox" id="rtApprox" checked><span>文件名加 APPROX，表示时间是推算的</span></label>
+ <label class="check" style="margin-top:4px"><input type="checkbox" id="rtFolderName" checked><span>日期文件夹跟着改名（全部落在同一天时）</span></label>
+ <div id="rtSummary" class="note" style="margin-top:12px" hidden></div>
+ <div id="rtList" class="rt-list" hidden></div>
+ <div class="bottom"><button class="primary" id="rtGo" disabled>应用校准</button><button id="rtUndo" hidden>撤销上一次</button></div>
+ <div id="rtLast" class="tiny" style="margin-top:6px"></div>
+</div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
@@ -220,7 +240,7 @@ const isMac=/Mac/.test(navigator.platform);if(isMac)$('libraryRoot').value='/Vol
 const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* icons: 24px line set, drawn with currentColor */
-const ICON={sync:'<path d="M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',plus:'<path d="M12 5v14M5 12h14"/>',card:'<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M10 3v4M13 3v4"/>',doc:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',power:'<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',calendar:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',film:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',pause:'<path d="M9 6v12M15 6v12"/>',play:'<path d="M8 5.5v13l10-6.5z"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',chev:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',alert:'<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',drive:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'};
+const ICON={sync:'<path d="M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3"/><path d="M18 3v4h-4M6 21v-4h4"/>',plus:'<path d="M12 5v14M5 12h14"/>',card:'<path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M10 3v4M13 3v4"/>',doc:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',power:'<path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>',calendar:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',film:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',pause:'<path d="M9 6v12M15 6v12"/>',play:'<path d="M8 5.5v13l10-6.5z"/>',stop:'<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',x:'<path d="M6 6l12 12M18 6 6 18"/>',chev:'<path d="M9 6l6 6-6 6"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',alert:'<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>',dots:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',drive:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'};
 function ic(name){return `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]||''}</svg>`}
 document.querySelectorAll('[data-i]').forEach(e=>e.insertAdjacentHTML('afterbegin',ic(e.dataset.i)));
 
@@ -403,7 +423,44 @@ document.addEventListener('drop',async e=>{e.preventDefault();dragDepth=0;$('emp
 $('link').onclick=async()=>{try{let result=await api('/pick',{kind:'folder'});if(!result.value)return;let note=toast('正在核对原片内容…',{sticky:true});try{let old=[...files],linked=(await api('/link',{files,folder:result.value})).files,next={};linked.forEach((p,i)=>next[p]=fileOptions[old[i]]||currentQuality());files=linked;fileOptions=next;selRows.forEach(r=>r.remove());selRows.clear();await preview();toast('已关联原片')}finally{note.close()}}catch(e){error(e)}};
 
 /* keyboard: ⌘/Ctrl+O add videos, ⌘/Ctrl+Enter start, Esc closes the SD window */
-document.addEventListener('keydown',e=>{let mod=e.metaKey||e.ctrlKey;if(e.key==='Escape'&&!$('sdModal').hidden){closeModal();return}if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();add()}if(mod&&e.key==='Enter'&&!$('go').disabled){e.preventDefault();$('go').click()}});
+/* ---- 工具菜单 / 时间校准 ---- */
+$('toolsBtn').onclick=e=>{e.stopPropagation();let m=$('toolsMenu');m.hidden=!m.hidden;$('toolsBtn').setAttribute('aria-expanded',String(!m.hidden))};
+document.addEventListener('click',e=>{if(!$('toolsMenu').hidden&&!e.target.closest('.menu-wrap'))$('toolsMenu').hidden=true});
+let rtTimer=null,rtSeq=0,rtPlan=null,rtApproxTouched=false;
+function rtMode(){return document.querySelector('input[name=rtMode]:checked').value}
+function rtOptions(){let o={mode:rtMode(),approx:$('rtApprox').checked,rename_folder:$('rtFolderName').checked};
+ if(o.mode==='offset')o.offset_seconds=((+$('rtDays').value||0)*24*60+(+$('rtHours').value||0)*60+(+$('rtMins').value||0))*60;
+ else if($('rtRef').value&&$('rtReal').value)o.reference={file:$('rtRef').value,position:$('rtPos').value||'0',real:$('rtReal').value};
+ return o}
+function rtShift(sec){let s=sec<0?'提前':'推后',a=Math.abs(sec),d=Math.floor(a/86400),h=Math.floor(a%86400/3600),m=Math.floor(a%3600/60),x=a%60;return s+' '+[d?d+' 天':'',h?h+' 小时':'',m?m+' 分':'',x?x+' 秒':''].filter(Boolean).join(' ')||'不变'}
+async function rtLoad(){clearTimeout(rtTimer);let folder=$('rtFolder').value.trim();let seq=++rtSeq;$('rtGo').disabled=true;
+ if(!folder){$('rtSummary').hidden=true;$('rtList').hidden=true;return}
+ try{let p=await api('/retime',{action:'plan',folder,options:rtOptions()});if(seq!==rtSeq)return;rtPlan=p;
+  let sel=$('rtRef'),cur=sel.value;let sig=p.videos.map(v=>v.name).join('|');if(sel.dataset.sig!==sig){sel.dataset.sig=sig;sel.replaceChildren(...p.videos.map(v=>{let o=el('option',null,v.name);o.value=v.name;return o}));if(p.videos.some(v=>v.name===cur))sel.value=cur}
+  let n=p.videos.length,lines=[];
+  if(!n)lines.push('这个文件夹里没有文件名带拍摄时间的视频。');
+  else if(p.shift_seconds==null)lines.push(`找到 ${n} 段视频。`+(rtMode()==='reference'?'选一段视频，填它播放到哪里、那一刻的真实时间。':''));
+  else{let first=p.items[0],last=p.items[p.items.length-1];lines.push(`${n} 段视频全部${rtShift(p.shift_seconds)}：${first.new.slice(0,16)} 起，到 ${last.new.slice(0,16)} 这段开始。`);if(p.folder_to)lines.push(`文件夹 ${p.folder.split(/[\\/]/).pop()} → ${p.folder_to}`)}
+  lines.push(...p.warnings);$('rtSummary').hidden=false;$('rtSummary').textContent=lines.join('\n');$('rtSummary').style.whiteSpace='pre-line';
+  let list=$('rtList');list.replaceChildren();list.hidden=!p.items.length;
+  p.items.forEach(i=>{let r=el('div','rt-row'+(i.from===$('rtRef').value&&rtMode()==='reference'?' ref':'')+(i.problem?' bad':''));r.append(el('span','old',i.from),el('span','tiny','→'),el('span','new',i.problem?i.to+'（'+i.problem+'）':i.to));r.title=i.old+' → '+i.new;list.append(r)});
+  $('rtGo').disabled=!(p.items.length&&p.shift_seconds&&!p.items.some(i=>i.problem));
+ }catch(e){if(seq!==rtSeq)return;$('rtSummary').hidden=false;$('rtSummary').textContent=e.message}}
+function rtQueue(){clearTimeout(rtTimer);rtTimer=setTimeout(rtLoad,300)}
+async function rtLast(){try{let r=await api('/retime',{action:'last'});let l=r.last;$('rtUndo').hidden=!l;$('rtUndo').dataset.root=l?l.root:'';$('rtUndo').dataset.batch=l?l.batch:'';$('rtLast').textContent=l?`上一次：${l.at.replace('T',' ').slice(0,16)}，${l.folder} 里 ${l.count} 段视频`:''}catch(e){}}
+function rtOpen(){$('toolsMenu').hidden=true;lastFocus=document.activeElement;$('rtModal').hidden=false;rtLast();rtLoad();setTimeout(()=>$('rtFolder').focus(),50)}
+function rtClose(){let m=$('rtModal');m.hidden=true;lastFocus?.focus?.()}
+$('openRetime').onclick=rtOpen;$('rtClose').onclick=rtClose;$('rtModal').onclick=e=>{if(e.target===$('rtModal'))rtClose()};
+$('rtPick').onclick=()=>withBusy($('rtPick'),async()=>{try{let r=await api('/pick',{kind:'folder'});if(r.value){$('rtFolder').value=r.value;$('rtRef').dataset.sig='';rtLoad()}}catch(e){toast(e.message,{bad:true})}});
+['rtFolder','rtPos','rtHours','rtMins','rtDays'].forEach(id=>$(id).addEventListener('input',rtQueue));
+['rtRef','rtReal','rtFolderName'].forEach(id=>$(id).addEventListener('change',rtLoad));
+$('rtApprox').addEventListener('change',()=>{rtApproxTouched=true;rtLoad()});
+document.querySelectorAll('input[name=rtMode]').forEach(r=>r.addEventListener('change',()=>{let off=rtMode()==='offset';$('rtRefBox').hidden=off;$('rtOffBox').hidden=!off;if(!rtApproxTouched)$('rtApprox').checked=!off;rtLoad()}));
+$('rtGo').onclick=()=>withBusy($('rtGo'),async()=>{let p=rtPlan;if(!p)return;if(!confirm(`把 ${p.items.length} 段视频的时间${rtShift(p.shift_seconds)}？\n文件名、视频里的拍摄时间、修改时间会一起改${p.folder_to?'，文件夹改名为 '+p.folder_to:''}。之后可以撤销。`))return;
+ try{let r=await api('/retime',{action:'apply',folder:$('rtFolder').value.trim(),options:rtOptions()});toast(`已校准 ${r.done.length} 段视频`);$('rtFolder').value=r.folder;$('rtReal').value='';$('rtHours').value=$('rtMins').value=$('rtDays').value='0';$('rtRef').dataset.sig='';await rtLast();rtLoad()}catch(e){toast(e.message,{bad:true})}});
+$('rtUndo').onclick=()=>withBusy($('rtUndo'),async()=>{if(!confirm('把上一次时间校准改回去？（'+$('rtLast').textContent.replace('上一次：','')+'）'))return;
+ try{let r=await api('/retime',{action:'undo',root:$('rtUndo').dataset.root,batch:$('rtUndo').dataset.batch});toast(`已改回 ${r.restored} 段视频`);await rtLast();$('rtFolder').value='';rtLoad()}catch(e){toast(e.message,{bad:true})}});
+document.addEventListener('keydown',e=>{let mod=e.metaKey||e.ctrlKey;if(e.key==='Escape'&&!$('rtModal').hidden){rtClose();return}if(e.key==='Escape'&&!$('toolsMenu').hidden){$('toolsMenu').hidden=true;return}if(e.key==='Escape'&&!$('sdModal').hidden){closeModal();return}if(mod&&e.key.toLowerCase()==='o'){e.preventDefault();add()}if(mod&&e.key==='Enter'&&!$('go').disabled){e.preventDefault();$('go').click()}});
 
 /* hardware & logs */
 async function loadHw(recheck=false){try{let h=await api('/hardware',{recheck});let box=$('hwInfo');box.replaceChildren();if(h.status!=='done'){box.innerHTML='<span class="spin" style="vertical-align:-2px;margin-right:6px"></span>正在检测这台电脑能用的编码方式…';setTimeout(loadHw,1500);return}

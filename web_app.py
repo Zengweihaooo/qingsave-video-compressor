@@ -24,6 +24,7 @@ import temp_storage as storage
 import space
 import updater
 import folder_tags
+import retime
 import time
 import processing_time
 import pipeline_runtime as pipeline
@@ -642,6 +643,41 @@ def retag():
     for item in failed: applog.write('文件夹后缀', f"{item['from']} 没能改名：{item['reason']}")
     return {'done': done, 'failed': failed, 'skipped': skipped, 'busy': False}
 
+def retime_request(data):
+    """时间校准: plan / apply / undo (see retime.py)."""
+    action = data.get('action', 'plan')
+    if action == 'last':
+        roots = [str(r) for r in library_roots()] + (applog.load_json('retime-roots.json', []) or [])
+        last = retime.last_batch(list(dict.fromkeys(r for r in roots if os.path.isdir(r))))
+        if not last: return {'last': None}
+        root, batch, entries = last
+        files = [e for e in entries if 'from' in e]
+        folder = next((e['folder_to'] for e in entries if 'folder_to' in e), entries[0].get('folder'))
+        return {'last': {'root': str(root), 'batch': batch, 'at': entries[0]['at'], 'folder': folder, 'count': len(files)}}
+    if action == 'undo':
+        if working(): raise ValueError('正在处理视频或导入，请等处理完再撤销')
+        with TAG_LOCK:
+            restored = retime.undo(data['root'], data['batch'])
+        applog.write('时间校准', f"撤销：{len(restored)} 个视频改回原来的时间")
+        return {'restored': len(restored)}
+    folder = str(data.get('folder') or '').strip()
+    if not folder: raise ValueError('请先选择文件夹')
+    options = data.get('options') or {}
+    if action == 'apply':
+        if working(): raise ValueError('正在处理视频或导入，请等处理完再校准')
+        prefix = os.path.normcase(os.path.abspath(folder)) + os.sep
+        if any(os.path.normcase(os.path.abspath(p)).startswith(prefix) for p in locked_paths()):
+            raise ValueError('队列里还有这个文件夹的视频没处理完，请先处理完或移出队列')
+        with TAG_LOCK:
+            result = retime.apply(folder, options)
+        roots = applog.load_json('retime-roots.json', []) or []
+        parent = str(Path(folder).parent)
+        if parent not in roots: applog.save_json('retime-roots.json', (roots + [parent])[-20:])
+        applog.write('时间校准', f"{Path(folder).name}：{len(result['done'])} 个视频平移 {result['shift_seconds']} 秒"
+                     + (f"，文件夹改为 {Path(result['folder']).name}" if result['folder'] != folder else ''))
+        return result
+    return retime.plan(folder, options)
+
 def tag_loop():
     """Keep folder tags right after compressing / importing finishes."""
     while True:
@@ -966,6 +1002,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.reply(retag()); return
                 changes, skipped = folder_tags.plan(library_roots(), locked_paths())
                 self.reply({'changes': changes, 'skipped': skipped}); return
+            if self.path == '/retime':
+                self.reply(retime_request(data)); return
             if self.path == '/pipeline':
                 if data:
                     with task_condition:

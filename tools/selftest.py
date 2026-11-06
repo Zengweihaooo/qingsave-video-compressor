@@ -265,6 +265,43 @@ def test_folder_tags(base):
     check(restored and (root / '10.15').is_dir() and (root / '10.12 学校').is_dir() and (root / '10.31').is_dir(), '撤销改回原名')
 
 
+def test_retime(base):
+    print('时间校准')
+    import datetime as dt
+    import retime
+    root = base / 'retime'
+    a = make(root, '02.06_ORG/20220206_133128_ORG_001.mp4', 2)
+    b = make(root, '02.06_ORG/20220206_134659_ORG_002.mp4', 2)
+    for clip, utc in ((a, '2022-02-06T05:31:29Z'), (b, '2022-02-06T05:46:59Z')):  # camera clock: UTC+8, wrong date
+        tmp = clip.with_suffix('.tmp.mp4')
+        subprocess.run([L.c.executable('ffmpeg'), '-v', 'error', '-y', '-i', str(clip), '-c', 'copy', '-metadata',
+                        f'creation_time={utc}', str(tmp)], check=True)
+        tmp.replace(clip)
+    (root / '02.06_ORG/20220206_134659_ORG_002.mp4.dji.json').write_text('{"source": "/x/20220206_134659_ORG_002.mp4"}')
+    before = {p.name: p.read_bytes() for p in (root / '02.06_ORG').iterdir()}
+    folder = root / '02.06_ORG'
+    opt = {'mode': 'reference', 'reference': {'file': b.name, 'position': '6:01', 'real': '2026-10-30T11:53:39'}}
+    plan = retime.plan(folder, opt)
+    check(plan['shift_seconds'] == int((dt.datetime(2026, 10, 30, 11, 53, 39) - dt.datetime(2022, 2, 6, 13, 53)).total_seconds()),
+          '按「第几分钟＝真实时间」算出平移')
+    check([i['to'] for i in plan['items']] == ['20261030_113207_APPROX_ORG_001.mp4', '20261030_114738_APPROX_ORG_002.mp4']
+          and plan['folder_to'] == '10.30_ORG', '文件名加 APPROX，日期文件夹跟着改')
+    result = retime.apply(folder, opt)
+    new = root / '10.30_ORG'
+    info = L.c.probe(new / '20261030_113207_APPROX_ORG_001.mp4')
+    created = dt.datetime.fromisoformat(info['format']['tags']['creation_time'].replace('Z', '+00:00')).astimezone().replace(tzinfo=None)
+    check(abs((created - dt.datetime(2026, 10, 30, 11, 32, 7)).total_seconds()) <= 1, '视频里的拍摄时间同步改好')
+    check('20261030_114738_APPROX_ORG_002.mp4' in (new / '20261030_114738_APPROX_ORG_002.mp4.dji.json').read_text(), '压缩记录跟着改名')
+    check(len(result['done']) == 2, '两段都已校准')
+    tz = retime.plan(new, {'mode': 'offset', 'offset_seconds': -3600, 'approx': False})
+    check(tz['items'][0]['to'] == '20261030_103207_APPROX_ORG_001.mp4', '时区平移：已有 APPROX 不重复加')
+    last = retime.last_batch([root])
+    retime.undo(last[0], last[1])
+    after = {p.name: p.read_bytes() for p in folder.iterdir()} if folder.is_dir() else {}
+    check(after == before, '撤销后逐字节恢复原样（文件名、文件夹、记录）')
+    check(retime.last_batch([root]) is None, '撤销过的不再出现在「上一次」')
+
+
 def test_space(base):
     print('空间预估')
     import space
@@ -298,5 +335,6 @@ if __name__ == '__main__':
         test_name_clash(base)
         test_space(base)
         test_folder_tags(base)
+        test_retime(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)
