@@ -171,6 +171,9 @@ def apply(changes):
                 f.flush()
                 os.fsync(f.fileno())
             for source, target in pairs:
+                # macOS on exFAT may move AppleDouble alongside the main file itself.
+                if source.name.startswith('._') and not source.exists() and target.is_file():
+                    continue
                 target.parent.mkdir(exist_ok=True)
                 if target.exists():
                     raise FileExistsError('目标已有同名文件，未覆盖')

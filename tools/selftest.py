@@ -255,7 +255,23 @@ def test_folder_tags(base):
     before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
     changes, skipped = ft.plan([root], locked=[str(root / '10.17/a_ORG_001.mp4')])
     check(len(skipped) == 3, '正在写入、未完成队列、目标重名均跳过')
-    done, failed = ft.apply(changes)
+    # Emulate macOS/exFAT moving AppleDouble automatically with its owner.
+    companion = root / '10.31' / ('._' + Path(fixtures[3]).name)
+    companion.write_bytes(b'metadata')
+    before[str(companion.relative_to(root))] = companion.read_bytes()
+    changes, skipped = ft.plan([root], locked=[str(root / '10.17/a_ORG_001.mp4')])
+    real_rename = Path.rename
+    def native_rename(path, target):
+        result = real_rename(path, target)
+        side = path.with_name('._' + path.name)
+        if not path.name.startswith('._') and side.exists():
+            real_rename(side, Path(target).with_name('._' + Path(target).name))
+        return result
+    Path.rename = native_rename
+    try:
+        done, failed = ft.apply(changes)
+    finally:
+        Path.rename = real_rename
     check(done and not failed, '混放文件分开，原片和 LRF 一起移动')
     check((root / '10.31_ORG/20261031_214333_ORG_001.LRF').is_file()
           and (root / '10.31_CMP/20261031_214333_CMP_001_LRF.mp4').is_file(), '原始 LRF 在 ORG，压缩过的代理在 CMP')
