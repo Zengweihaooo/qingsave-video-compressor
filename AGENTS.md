@@ -127,10 +127,11 @@ python tools/selftest.py
 - 仓库已改为公开（用户认为代码不涉及隐私；提交前别把 token、个人路径写进去）。右上角「拉取更新」→ `POST /update` → `updater.run()`：有 `.git` 且装了 git 时 `git fetch` + `merge --ff-only`（本地有没推送的改动会拒绝，不会覆盖）；便携 Windows 包没有 `.git`，就下载 GitHub zip，只覆盖根目录程序文件和 `vendor/`、`tools/`，旧文件备份在 `.update-backup/`，版本号写在 `.version`。`bin/`、`runtime/`、数据目录不动。
 - 更新后先对所有 `*.py` 做语法检查，失败就回滚（git 用 `reset --keep`，zip 用备份）。有压缩 / 导入 / 素材库任务在跑时拒绝更新。成功后服务 `shutdown()`（队列存盘），主线程退出循环后 `updater.relaunch` 用同样参数和**同一端口**重启（POSIX 用 `os.execv` 保持 pid，Dock app 不会掉线；Windows 起新的无窗口进程）。页面轮询 `/health` 后自动刷新。新增模块文件要放在仓库根目录，zip 方式才会带上。
 
-## 文件夹后缀
-- `folder_tags.py`：库根目录下的日期文件夹（`MM.DD…`）按直接放在里面的视频改名：全是原片 → `_ORG`，全是压缩版 → `_CMP`，混放 / 认不出 / 没视频 → 不加（已有的不合适后缀会去掉）。按文件名判断：`CMP`/`compressed` 是压缩版，`ORG`/`original` 或相机原名 `CAM_`/`DJI_` 是原片，`_LRF` 代理不算。损坏而保留的原片会让那个文件夹算混放。
-- 只在没有压缩 / 导入 / 扫描时改；有 `.partial.mp4`、`.qingsave-return`，或未完成任务、待移回暂存还指向的文件夹跳过。`web_app.tag_loop` 每 60 秒按 `preferences.json` 的 `folder_tags`（默认开）整理一次；页面「保存与原片」里可关掉、「现在整理」、「撤销全部后缀」。每次改名记在 `<根>/.qingsave/folder-tags-log.jsonl`。
-- `find_storage_dir` 把 `10.31_ORG` 当作 `10.31` 本身（不当描述），压缩归档 / SD 导入会继续用这个文件夹，之后后缀自动更新；`library.parse_folder` 也先去掉后缀。
+## ORG / CMP 文件夹分离
+- 同一天使用相邻的日期文件夹：`11.13_ORG` 存原片、原始 `.LRF` 和原片恢复用的 `_LRF.mp4`；`11.13_CMP` 存压缩版（包括已压缩的 `_CMP_…_LRF.mp4`）。保留日期后的描述。
+- `folder_tags.py` 自动把混放的已识别文件分开，随视频移动 `.dji.json` 和 AppleDouble，同步压缩记录路径；未知文件保留原位，重名跳过，绝不覆盖或删除视频。日志仍在 `.qingsave/folder-tags-log.jsonl`，支持撤销和旧版改名日志。
+- `find_storage_dir(..., tag='CMP')` / SD 导入固定目标类型，不能再把 ORG 和 CMP 当成可互换输出。压缩选原目录时写到同日期 `_CMP`；非日期目录写入 `CMP` 子目录。
+- 自动整理仍遵守 `folder_tags` 设置，每 60 秒空闲时执行；忙碌、未完成队列或待移回文件涉及的文件夹跳过。移动后队列历史路径同步更新，SD 导入历史由 `_current_path` 兼容旧路径。
 
 ## 时间校准（工具菜单）
 - 右上角「工具 → 时间校准…」（不常用，所以放二级菜单）。`retime.py` + `POST /retime`（plan / apply / undo / last）。选一个文件夹，两种方式：对照一个时刻（某段视频播放到 mm:ss 时的真实时间）或按时区 / 固定时长平移。文件夹里所有文件名带时间的视频平移同样的量，间隔不变。
@@ -138,3 +139,7 @@ python tools/selftest.py
 - 每个旧值先写进 `<根>/.qingsave/retime-log.jsonl`（按 batch）再改，撤销逐字节恢复；用过的根目录记在数据目录 `retime-roots.json`，供「撤销上一次」查找。处理中 / 队列还要用的文件夹拒绝。
 - 压缩带 `APPROX` 的原片，成品保留标记：`…_APPROX_CMP_001.mp4`（`compressor.output_name`）。
 - 2026-11 已手动校准 Data 盘 `02.06_ORG` → `10.30_ORG`（Osmo Action 3 记成 2022-02-06；003 播放 15:01 = 2026-10-30 11:53:39），记录在 batch `manual-20261106`。
+
+## SD 导入：带 LRF / 只复制
+- 用户可能要用大疆官方软件导出实况照片，LRF 可能用得上（官方软件是否接受改名后的 LRF 未验证）。SD 弹窗两个勾选：「LRF 也一起存到固态硬盘」（`preferences.json` 的 `sd_keep_lrf` 记住）→ 存成视频旁同名 `<…_ORG_001>.LRF`，读回校验，发生在删卡之前；「只复制」（不记住）→ 卡上文件全部保留，默认仍是校验后删卡上原片和代理。
+- `/sd/plan` 收 `keep_lrf`（空间按视频 + LRF 算），`/sd/start` 收 `keep_lrf`、`keep_card`。只复制过的卡下次按普通方式导入，状态是「上次已复制」：核对一致后才清卡，不重复拷；`_current_path` 兼容日期文件夹后来加 / 去 `_ORG`、`_CMP`。损坏视频仍走原流程（`<名字>_LRF.mp4`，等用户确认）。

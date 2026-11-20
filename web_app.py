@@ -30,7 +30,7 @@ import processing_time
 import pipeline_runtime as pipeline
 
 TOKEN = secrets.token_urlsafe(32)
-BUILD = 'osv-preview-2'
+BUILD = 'storage-split-1'
 state = {'busy': False, 'logs': [], 'files': []}
 lock = threading.Lock()
 worker = types.SimpleNamespace(events=queue.Queue(), cancel=threading.Event(), manifests=[], progress={}, progress_lock=threading.Lock())
@@ -121,7 +121,7 @@ def library_roots(extra=None):
     return roots
 
 
-def find_storage_dir(month, day, roots):
+def find_storage_dir(month, day, roots, tag=None):
     """Prefer an existing date folder that already carries the day's description."""
     token = f'{month:02d}.{day:02d}'
     described, exact = [], []
@@ -146,7 +146,8 @@ def find_storage_dir(month, day, roots):
         volume = 0 if parent == os.path.normcase('/Volumes/Data') else 1 if parent == os.path.normcase('/Volumes/Weihao') else 2
         return volume, path.name
 
-    return sorted(pool, key=rank)[0]
+    result = sorted(pool, key=rank)[0]
+    return folder_tags.destination(result, tag) if tag else result
 
 
 def media_date(path, root=None, year=None):
@@ -358,12 +359,12 @@ def sort_key(path):
 def archive_directory(path, output_root=None):
     timestamp = c.stamp(path) if str(path) not in scan_dates else scan_dates[str(path)]
     month, day = int(timestamp[4:6]), int(timestamp[6:8])
-    existing = find_storage_dir(month, day, library_roots(output_root))
+    existing = find_storage_dir(month, day, library_roots(output_root), tag="CMP")
     if existing:
         return existing
     if not output_root and not LIBRARY_ROOTS: raise ValueError('请先连接 SSD 或选择输出文件夹')
     base = Path(output_root).expanduser() if output_root else LIBRARY_ROOTS[0]
-    return base / f'{month:02d}.{day:02d}'
+    return base / f'{month:02d}.{day:02d}_CMP'
 
 def names(data):
     start, width = int(data['start']), int(data['width'])
@@ -371,7 +372,9 @@ def names(data):
     paths = sorted(set(data['files']), key=sort_key)
     items = []
     for index, path in enumerate(paths):
-        directory = archive_directory(path, data.get('output') or None) if data.get('archive', True) and not data.get('same') else None
+        directory = (folder_tags.destination(Path(path).parent, 'CMP') if data.get('same') else
+                     archive_directory(path, data.get('output') or None) if data.get('archive', True) else
+                     folder_tags.destination(Path(data['output']).expanduser(), 'CMP') if data.get('output') else None)
         items.append({
             'source': path,
             'name': c.output_name(path, data['suffix'], start + index, width, timestamp=scan_dates.get(path)),
@@ -615,7 +618,7 @@ def space_summary(data):
     return result
 
 def preferences():
-    # defaults: delete originals once verified; tag date folders _ORG / _CMP by what they hold
+    # defaults: delete originals once verified; keep ORG/LRF separate from CMP
     return {'delete_mode': 'permanent', 'folder_tags': True, **(applog.load_json('preferences.json', {}) or {})}
 
 TAG_LOCK = threading.Lock()
@@ -632,6 +635,22 @@ def locked_paths():
     paths += [p for e in storage.snapshot() for p in (e.get('target'), e.get('source')) if p]
     return paths
 
+def remap_moved_paths(changes):
+    mapping = {str(Path(i['root']) / x): str(Path(i['root']) / y)
+               for i in changes for x, y in i.get('moves', [])}
+    if not mapping:
+        return
+    with task_condition:
+        for task in tasks:
+            for key in ('source', 'output', 'return_path'):
+                if task.get(key) in mapping:
+                    task[key] = mapping[task[key]]
+        worker.manifests[:] = [mapping.get(p, p) for p in worker.manifests]
+    scan_dates.clear()
+    origin_cache.clear()
+    applog.save_json(QUEUE_FILE, snapshot_queue())
+
+
 def retag():
     """Give each date folder the tag that fits its content now (only while nothing is being processed)."""
     if working():
@@ -639,6 +658,7 @@ def retag():
     with TAG_LOCK:
         changes, skipped = folder_tags.plan(library_roots(), locked_paths())
         done, failed = folder_tags.apply(changes)
+    remap_moved_paths(done)
     for item in done: applog.write('文件夹后缀', f"{item['from']} → {item['to']}")
     for item in failed: applog.write('文件夹后缀', f"{item['from']} 没能改名：{item['reason']}")
     return {'done': done, 'failed': failed, 'skipped': skipped, 'busy': False}
@@ -839,7 +859,7 @@ def enqueue(data):
         if item.get('directory'):
             target = Path(item['directory']) / item['name']
         else:
-            base = source.parent if same else dest
+            base = folder_tags.destination(source.parent if same else dest, 'CMP')
             target = base / item['folder'] / item['name'] if item['folder'] else base / item['name']
         options = file_options.get(str(source), file_options.get(item['source'], {}))
         config = (options.get('video', data['video']), options.get('audio', data['audio']), data['engine'],
@@ -988,6 +1008,8 @@ class Handler(BaseHTTPRequestHandler):
                     prefs['delete_mode'] = data['delete_mode']
                 if isinstance(data.get('folder_tags'), bool):
                     prefs['folder_tags'] = data['folder_tags']
+                if isinstance(data.get('sd_keep_lrf'), bool):
+                    prefs['sd_keep_lrf'] = data['sd_keep_lrf']
                 if data: applog.save_json('preferences.json', prefs)
                 self.reply(prefs); return
             if self.path == '/folder-tags':
@@ -995,7 +1017,11 @@ class Handler(BaseHTTPRequestHandler):
                 if action == 'undo':
                     if working(): raise ValueError('正在处理，请等处理完再撤销')
                     with TAG_LOCK:
-                        restored = [e for root in library_roots() for e in folder_tags.undo(root)]
+                        restored = []
+                        for root in library_roots():
+                            entries = folder_tags.undo(root)
+                            remap_moved_paths([{'root': str(root), 'moves': [[y, x] for x, y in e.get('moves', [])]} for e in entries])
+                            restored.extend(entries)
                     for e in restored: applog.write('文件夹后缀', f"撤销：{e['to']} → {e['from']}")
                     self.reply({'restored': restored}); return
                 if action == 'apply':
@@ -1088,9 +1114,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({}); return
             if self.path == '/sd/state': self.reply(sd.state(LIBRARY_ROOTS)); return
             if self.path == '/sd/plan':
-                self.reply(sd.build_plan(LIBRARY_ROOTS, find_storage_dir, data.get('excluded', []))); return
+                self.reply(sd.build_plan(LIBRARY_ROOTS, find_storage_dir, data.get('excluded', []), bool(data.get('keep_lrf')))); return
             if self.path == '/sd/start':
-                sd.start(data.get('plan_id', ''), bool(data.get('eject'))); self.reply({}); return
+                sd.start(data.get('plan_id', ''), bool(data.get('eject')), bool(data.get('keep_lrf')), bool(data.get('keep_card'))); self.reply({}); return
             if self.path == '/sd/cancel': sd.cancel(); self.reply({}); return
             if self.path == '/sd/remove-corrupt':
                 self.reply({'messages': sd.remove_corrupt(data.get('ids', []), bool(data.get('keep_ssd_copy')))}); return

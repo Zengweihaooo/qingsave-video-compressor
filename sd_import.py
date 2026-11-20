@@ -3,7 +3,9 @@
 Every file is hashed while it is copied, read back from the SSD (bypassing the
 page cache) and compared before the card copy is removed.  Proxy files anywhere on
 the card with the same name as a main video (LRF / THM / SCR) are not copied; they
-are removed from the card only once that main video has been verified.
+are removed from the card only once that main video has been verified.  Optionally the LRF
+comes along as `<same name>.LRF` beside the video (DJI's own software works from it), and the
+card can be left untouched (a later normal import recognises the copies and just clears it).
 """
 import datetime as dt
 import hashlib
@@ -20,6 +22,7 @@ from pathlib import Path
 
 import applog
 import compressor as c
+import folder_tags
 
 MAIN_EXTENSIONS = {'.mp4', '.osv'}
 PROXY_EXTENSIONS = {'.lrf', '.thm', '.scr'}
@@ -209,6 +212,8 @@ def scan_card(card):
                       'source': str(path), 'relative': str(path.relative_to(root)),
                       'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns, 'timestamp': timestamp, 'basis': basis,
                       'proxies': [str(p) for p in proxies.pop(path.stem.upper(), [])]})
+        lrf = _lrf_of(items[-1])
+        items[-1]['lrf_size'] = lrf.stat().st_size if lrf else 0
     orphans = [str(p) for group in proxies.values() for p in group]
     return items, orphans
 
@@ -227,7 +232,20 @@ def existing_numbers(folder):
     return numbers
 
 
-def build_plan(library_roots, find_storage_dir, excluded=()):
+def _current_path(dest):
+    """Where a recorded copy is now: its date folder may have gained or lost an _ORG / _CMP suffix since."""
+    path = Path(dest)
+    if path.is_file():
+        return path
+    base = folder_tags.strip_tag(path.parent.name)
+    for name in (base, f'{base}_ORG', f'{base}_CMP'):
+        candidate = path.parent.with_name(name) / path.name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def build_plan(library_roots, find_storage_dir, excluded=(), keep_lrf=False):
     cards, targets = list_volumes(library_roots)
     excluded = set(excluded)
     history = read_log()
@@ -242,8 +260,11 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
     remaining = {t['mount']: t['free'] - FREE_MARGIN for t in targets}
     folders, numbers, problems = {}, {}, []
     for item in items:
-        copies = [r for r in history.get((item['relative'], item['size'], item['mtime_ns']), [])
-                  if Path(r['dest']).is_file() and Path(r['dest']).stat().st_size == item['size']]
+        copies = []
+        for record in history.get((item['relative'], item['size'], item['mtime_ns']), []):
+            current = _current_path(record['dest'])
+            if current and current.stat().st_size == item['size']:
+                copies.append({**record, 'dest': str(current)})
         if copies:
             # Copied earlier but the card copy was never removed (app closed mid-way, or a damaged video).
             previous = copies[0]
@@ -252,19 +273,21 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
                         target=str(Path(previous['dest']).parents[1]), folder=Path(previous['dest']).parent.name,
                         name=Path(previous['dest']).name)
             continue
+        need = item['size'] + (item['lrf_size'] if keep_lrf else 0)
         resumable = {t['mount']: _partial_paths(t['mount'], item)[0] for t in targets}
         resumable = {mount: part.stat().st_size for mount, part in resumable.items() if part.is_file()}
         # Continue an interrupted copy on the drive that already holds its first part.
         target = next((t for t in sorted(targets, key=lambda t: t['mount'] not in resumable)
-                       if remaining[t['mount']] + resumable.get(t['mount'], 0) >= item['size']), None)
+                       if remaining[t['mount']] + resumable.get(t['mount'], 0) >= need), None)
         item['resume_bytes'] = resumable.get(target['mount'], 0) if target else 0
         if not target:
             item['status'] = 'no_space'; problems.append(Path(item['source']).name); continue
-        remaining[target['mount']] -= item['size']
+        remaining[target['mount']] -= need
         month, day = int(item['timestamp'][4:6]), int(item['timestamp'][6:8])
         key = (target['mount'], month, day)
         if key not in folders:
-            folders[key] = find_storage_dir(month, day, [Path(target['mount'])]) or Path(target['mount']) / f'{month:02d}.{day:02d}'
+            existing = find_storage_dir(month, day, [Path(target['mount'])])
+            folders[key] = folder_tags.destination(existing, 'ORG') if existing else Path(target['mount']) / f'{month:02d}.{day:02d}_ORG'
         folder = folders[key]
         used = numbers.setdefault(str(folder), existing_numbers(folder))
         ext = Path(item['source']).suffix.lower()
@@ -285,11 +308,12 @@ def build_plan(library_roots, find_storage_dir, excluded=()):
     usage = {}
     for item in planned:
         if item['status'] == 'pending':
-            usage[item['target']] = usage.get(item['target'], 0) + item['size']
+            usage[item['target']] = usage.get(item['target'], 0) + item['size'] + (item['lrf_size'] if keep_lrf else 0)
     return {'plan_id': plan_id, 'cards': card_summary,
             'targets': [{**t, 'planned': usage.get(t['mount'], 0)} for t in targets],
             'items': [{k: i.get(k) for k in ('source', 'card_name', 'size', 'timestamp', 'basis', 'status', 'target', 'target_name', 'folder', 'name', 'proxies', 'resume_bytes')} for i in items],
-            'count': len(planned), 'size': sum(i['size'] for i in planned),
+            'count': len(planned), 'size': sum(i['size'] + (i['lrf_size'] if keep_lrf else 0) for i in planned),
+            'lrf_count': sum(1 for i in planned if i['lrf_size']), 'keep_lrf': bool(keep_lrf),
             'proxy_count': sum(len(i['proxies']) for i in planned), 'orphans': orphans, 'no_space': problems}
 
 
@@ -399,29 +423,38 @@ def _problem(path):
     return '几乎没有内容（读不出时长）'
 
 
+def _lrf_of(item):
+    return next((Path(p) for p in item['proxies'] if p.lower().endswith('.lrf') and Path(p).is_file()), None)
+
+
+def _copy_verified(source, target, cancel, step):
+    """Copy, read back and compare; an identical file already there counts, a different one is never overwritten."""
+    if target.is_file() and target.stat().st_size == source.stat().st_size:
+        if _hash_file(target, cancel, step) != _hash_file(source, cancel, step):
+            raise ValueError(f'{target.name} 已存在但内容不同，未覆盖')
+        return
+    partial = target.parent / f'.{target.name}.qingsave-partial'
+    try:
+        source_hash = _copy_hashed(source, partial, cancel, step)
+        if _hash_file(partial, cancel, step) != source_hash:
+            raise ValueError('LRF 读回校验不一致')
+        if target.exists():
+            raise ValueError(f'{target.name} 已被占用')
+        os.rename(partial, target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    stat = source.stat()
+    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+
 def _save_lrf(item, dest, cancel, step):
     """Keep the camera's low-res proxy next to a damaged main video; returns (path, playable)."""
-    lrf = next((Path(p) for p in item['proxies'] if p.lower().endswith('.lrf')), None)
-    if not lrf or not lrf.is_file():
+    lrf = _lrf_of(item)
+    if not lrf:
         return None, False
     target = dest.with_name(dest.stem + '_LRF.mp4')
-    if target.is_file() and target.stat().st_size == lrf.stat().st_size:
-        if _hash_file(target, cancel, step) != _hash_file(lrf, cancel, step):
-            raise ValueError(f'{target.name} 已存在但内容不同，未覆盖')
-    else:
-        partial = target.parent / f'.{target.name}.qingsave-partial'
-        try:
-            source_hash = _copy_hashed(lrf, partial, cancel, step)
-            if _hash_file(partial, cancel, step) != source_hash:
-                raise ValueError('LRF 读回校验不一致')
-            if target.exists():
-                raise ValueError(f'{target.name} 已被占用')
-            os.rename(partial, target)
-        except BaseException:
-            partial.unlink(missing_ok=True)
-            raise
-        stat = lrf.stat()
-        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    _copy_verified(lrf, target, cancel, step)
     return str(target), _problem(target) is None
 
 
@@ -477,7 +510,12 @@ def _finish(item, dest, cancel, step):
     _progress(item['card'], phase='检查视频可读取', file=Path(item['source']).name)
     problem = _problem(dest)
     if not problem:
-        return _delete_from_card(item), None
+        lrf = _lrf_of(item) if item.get('keep_lrf') else None
+        if lrf:  # before anything leaves the card
+            _progress(item['card'], phase='复制并校验 LRF', file=lrf.name)
+            _copy_verified(lrf, dest.with_name(dest.stem + '.LRF'), cancel, step)
+            item['lrf_copied'] = True
+        return (0 if item.get('keep_card') else _delete_from_card(item)), None
     _progress(item['card'], phase='视频损坏，保存 LRF 到固态硬盘', file=Path(item['source']).name)
     lrf, lrf_ok = _save_lrf(item, dest, cancel, step)
     entry = {'id': uuid.uuid4().hex, 'source': item['source'], 'size': item['size'], 'mtime_ns': item['mtime_ns'],
@@ -492,7 +530,7 @@ def _run_card(card, items, cancel, totals):
     def step(count):
         with _lock:
             job['progress'][card]['bytes_done'] += count
-    work = 2 * sum(i['size'] for i in items)  # one pass from the card, one read-back from the SSD
+    work = 2 * sum(i['size'] + (i['lrf_size'] if i.get('keep_lrf') else 0) for i in items)  # one pass from the card, one read-back from the SSD
     _progress(card, bytes_done=0, bytes_total=work, done=0, total=len(items))
     for item in items:
         if cancel.is_set():
@@ -505,7 +543,8 @@ def _run_card(card, items, cancel, totals):
             target = f"{item.get('target_name') or Path(item['target']).name}/{item['folder']}/{item['name']}"
             if not damaged:
                 totals['moved'] += 1
-                log(f'✓ {name} → {target}' + (f'（另删 {proxies} 个代理文件）' if proxies else ''))
+                log(f'✓ {name} → {target}' + ('（含 LRF）' if item.get('lrf_copied') else '') + ('（卡上保留）' if item.get('keep_card') else '')
+                    + (f'（另删 {proxies} 个代理文件）' if proxies else ''))
             else:
                 totals['kept'] += 1
                 saved = (f"LRF 已存到 {Path(damaged['lrf']).name}" + ('' if damaged['lrf_ok'] else '（但 LRF 也读不出）')) if damaged['lrf'] else '没有可保存的 LRF'
@@ -523,7 +562,7 @@ def _run_card(card, items, cancel, totals):
             job['progress'][card]['done'] += 1
 
 
-def start(plan_id, eject=False):
+def start(plan_id, eject=False, keep_lrf=False, keep_card=False):
     with _lock:
         if job['running']:
             raise ValueError('导入正在进行')
@@ -532,6 +571,8 @@ def start(plan_id, eject=False):
             raise ValueError('导入计划已过期，请重新检测')
         if not items:
             raise ValueError('没有需要移动的文件')
+        for item in items:
+            item.update(keep_lrf=bool(keep_lrf), keep_card=bool(keep_card))
         _plans.clear()
         job.update(running=True, logs=[], progress={}, result=None)
         job['cancel'] = threading.Event()
@@ -542,12 +583,12 @@ def start(plan_id, eject=False):
 
     def controller():
         totals = {'moved': 0, 'kept': 0, 'failed': 0, 'paused': 0}
-        log(f'开始移动 {len(items)} 个视频，来自 {len(by_card)} 张卡；逐个复制、校验、删除')
+        log(f"开始{'复制' if keep_card else '移动'} {len(items)} 个视频{'和 LRF' if keep_lrf else ''}，来自 {len(by_card)} 张卡；逐个复制、校验" + ('，卡上文件保留' if keep_card else '、删除'))
         for card, group in by_card.items():  # strictly one file at a time, card after card
             if cancel.is_set():
                 break
             _run_card(card, group, cancel, totals)
-        summary = f"完成：移动 {totals['moved']} 个" + (f"，{totals['kept']} 个视频损坏，等待你确认" if totals['kept'] else '') + (f"，失败 {totals['failed']} 个" if totals['failed'] else '')
+        summary = f"完成：{'复制' if keep_card else '移动'} {totals['moved']} 个" + (f"，{totals['kept']} 个视频损坏，等待你确认" if totals['kept'] else '') + (f"，失败 {totals['failed']} 个" if totals['failed'] else '')
         if cancel.is_set(): summary = '已暂停。' + summary + '。剩下的视频还在卡上，下次插卡会接着处理'
         log(summary)
         if eject and not cancel.is_set() and not totals['failed'] and not totals['kept']:

@@ -151,12 +151,12 @@ def test_sd(base):
     check([i['name'] for i in plan['items']] == ['20261021_143025_ORG_001.mp4', '20261021_150000_ORG_002.mp4'], '沿用已有文件夹，编号沿用相机原编号 0001→ORG_001（卡上 ._ 文件不导入）')
     check(not good.exists() and not (card_root / 'MISC/CAM_20261021143025_0001_D.LRF').exists(), '好视频移走、代理文件删除')
     check(broken.exists() and len(sd.job['corrupt']) == 1, '坏视频留在卡上等待确认')
-    check((ssd / '10.21 骑车/20261021_150000_ORG_002_LRF.mp4').exists(), '坏视频的 LRF 已存到固态硬盘')
+    check((ssd / '10.21 骑车_ORG/20261021_150000_ORG_002_LRF.mp4').exists(), '坏视频的 LRF 已存到固态硬盘')
     plan = run('UUID-B')  # same card, different volume id
-    check(plan['items'][0]['status'] == 'copied' and len(list((ssd / '10.21 骑车').glob('*150000_ORG_*.mp4'))) == 2, '换了卷 ID 也不会重复复制')
+    check(plan['items'][0]['status'] == 'copied' and len(list((ssd / '10.21 骑车_ORG').glob('*150000_ORG_*.mp4'))) == 2, '换了卷 ID 也不会重复复制')
     sd.remove_corrupt([e['id'] for e in sd.job['corrupt']], keep_ssd_copy=True)
-    check(not broken.exists() and (ssd / '10.21 骑车/20261021_150000_ORG_002.mp4').exists(), '确认后清卡，保留一份损坏原片')
-    imported = ssd / '10.21 骑车/20261021_143025_ORG_001.mp4'
+    check(not broken.exists() and (ssd / '10.21 骑车_ORG/20261021_150000_ORG_002.mp4').exists(), '确认后清卡，保留一份损坏原片')
+    imported = ssd / '10.21 骑车_ORG/20261021_143025_ORG_001.mp4'
     names = w.names({'files': [str(imported)], 'start': 1, 'width': 3, 'suffix': 'CMP', 'archive': False})
     check([n['name'] for n in names] == ['20261021_143025_CMP_001.mp4'], '压缩时编号跟着走：ORG_001 → CMP_001')
 
@@ -193,7 +193,7 @@ def test_sd_resume(base):
     sd.start(plan['plan_id'])
     while sd.job['running']:
         time.sleep(0.1)
-    dest = ssd / '10.22' / '20261022_100000_ORG_001.mp4'
+    dest = ssd / '10.22_ORG' / '20261022_100000_ORG_001.mp4'
     check(dest.is_file() and dest.read_bytes() == original, '接着复制完成，内容与原片完全一致')
     check(not big.exists() and not list((ssd / '.qingsave/partials').glob('*')), '校验后清卡并清理临时文件')
     check(any('接着上次复制' in line for line in sd.job['logs']), '日志里记录了续拷')
@@ -215,7 +215,8 @@ def run_queue(files, out, delete_mode):
 
 def test_name_clash(base):
     print('同名文件：先比哈希再处理')
-    root, out = base / 'clash', base / 'clash-out'
+    root, output_root = base / 'clash', base / 'clash-out'
+    out = output_root / 'CMP'
     original = make(root, 'a/CAM_20261021120000_0001_D.MP4', 2)
     backup = root / 'b/CAM_20261021120000_0001_D.MP4'
     backup.parent.mkdir(parents=True); shutil.copy2(original, backup)
@@ -238,31 +239,37 @@ def test_name_clash(base):
 
 
 def test_folder_tags(base):
-    print('文件夹后缀')
+    print('ORG / CMP 分开保存')
     import folder_tags as ft
-    import library
     root = base / 'tags'
-    for rel in ('10.31/20261031_214333_ORG_001.mp4', '10.31/20261031_214333_ORG_001_LRF.mp4', '10.15/20261015_160907_CMP_001.mp4',
-                '10.21/20261021_201840_ORG_006.mp4', '10.21/20261021_201840_CMP_006.mp4', '10.12 学校/CAM_20261012101010_0001_D.MP4',
-                '10.13/IMG_0001.MOV', '10.14_ORG/20261014_101010_CMP_001.mp4', '旅行/20261015_160907_ORG_009.mp4',
-                '10.16/20261016_101010_ORG_001.mp4', '10.16/.0123.partial.mp4', '10.17/20261017_101010_ORG_001.mp4'):
-        p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(b'x')
-    changes, skipped = ft.plan([root], locked=[str(root / '10.17/20261017_101010_ORG_001.mp4')])
-    got = {c['from']: c['to'] for c in changes}
-    check(got.get('10.31') == '10.31_ORG', '全是原片（代理不算）→ _ORG')
-    check(got.get('10.15') == '10.15_CMP', '全是压缩版 → _CMP')
-    check(got.get('10.12 学校') == '10.12 学校_ORG', '带描述的日期文件夹：相机原名算原片，后缀加在最后')
-    check(got.get('10.14_ORG') == '10.14_CMP', '内容变了：后缀跟着改')
-    check('10.21' not in got and '10.13' not in got and '旅行' not in got, '混放 / 认不出 / 非日期文件夹不改')
-    check({s['from'] for s in skipped} >= {'10.16', '10.17'}, '正在写入或队列还要用的文件夹跳过')
+    fixtures = ['10.31/20261031_214333_ORG_001.mp4', '10.31/20261031_214333_ORG_001.LRF',
+                '10.31/20261031_214333_ORG_001_LRF.mp4', '10.31/20261031_214333_CMP_001.mp4',
+                '10.31/20261031_214333_CMP_001_LRF.mp4', '10.31/IMG_0001.MOV',
+                '10.12 学校/CAM_20261012101010_0001_D.MP4',
+                '10.16/a_ORG_001.mp4', '10.16/.0123.partial.mp4', '10.17/a_ORG_001.mp4',
+                '10.18/a_ORG_001.mp4', '10.18_ORG/a_ORG_001.mp4']
+    for rel in fixtures:
+        p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(rel.encode())
+    manifest = root / '10.31/20261031_214333_CMP_001.mp4.dji.json'
+    manifest.write_text(json.dumps({'source': str(root / fixtures[0]), 'output': str(root / fixtures[3])}, ensure_ascii=False, indent=2))
+    before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    changes, skipped = ft.plan([root], locked=[str(root / '10.17/a_ORG_001.mp4')])
+    check(len(skipped) == 3, '正在写入、未完成队列、目标重名均跳过')
     done, failed = ft.apply(changes)
-    check((root / '10.31_ORG').is_dir() and (root / '10.15_CMP').is_dir() and not failed, '改名')
-    check(library.parse_folder('10.31_ORG')['desc'] == '' and library.parse_folder('10.12 学校_ORG')['desc'] == '学校', '素材日历不把后缀当描述')
-    (root / '10.31_ORG/20261031_220000_CMP_002.mp4').write_bytes(b'x')
-    ft.apply(ft.plan([root])[0])
-    check((root / '10.31').is_dir(), '变成混放后去掉后缀')
+    check(done and not failed, '混放文件分开，原片和 LRF 一起移动')
+    check((root / '10.31_ORG/20261031_214333_ORG_001.LRF').is_file()
+          and (root / '10.31_CMP/20261031_214333_CMP_001_LRF.mp4').is_file(), '原始 LRF 在 ORG，压缩过的代理在 CMP')
+    check((root / '10.31/IMG_0001.MOV').is_file(), '未知视频不擅自移动')
+    record = json.loads((root / '10.31_CMP' / manifest.name).read_text())
+    check('_ORG/' in record['source'] and '_CMP/' in record['output'], '压缩记录随视频移动并更新路径')
+    check(not ft.plan([root])[0] or all('10.17' in c['from'] for c in ft.plan([root])[0]), '重复整理不会再移动已分好的文件')
+    check(ft.destination(root / '10.31_ORG', 'CMP') == root / '10.31_CMP', '原目录压缩直接放同日期 CMP')
+    check(w.find_storage_dir(10, 31, [root], tag='ORG') == root / '10.31_ORG', 'SD 导入不会选到 CMP')
+    preview = w.names({'files': [str(root / '10.31_ORG' / Path(fixtures[0]).name)], 'start': 1, 'width': 3, 'suffix': 'CMP', 'same': True})
+    check(preview[0]['directory'] == str(root / '10.31_CMP'), '预览与实际输出都指向 CMP，原编号保持')
     restored = ft.undo(root)
-    check(restored and (root / '10.15').is_dir() and (root / '10.12 学校').is_dir() and (root / '10.31').is_dir(), '撤销改回原名')
+    after = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file() and '.qingsave' not in p.parts}
+    check(restored and before == after, '撤销恢复全部内容与记录路径，不覆盖任何文件')
 
 
 def test_retime(base):
@@ -302,6 +309,42 @@ def test_retime(base):
     check(retime.last_batch([root]) is None, '撤销过的不再出现在「上一次」')
 
 
+def test_sd_keep_lrf(base):
+    print('SD 导入：带 LRF / 保留卡')
+    import folder_tags as ft
+    card, ssd = base / 'lrf-card', base / 'lrf-ssd'
+    video = make(card, 'DCIM/DJI_001/DJI_20261109075919_0001_D.MP4', 2)
+    lrf = make(card, 'DCIM/DJI_001/DJI_20261109075919_0001_D.LRF', 1)
+    video2 = make(card, 'DCIM/DJI_001/DJI_20261109082317_0002_D.MP4', 2)
+    lrf2 = make(card, 'DCIM/DJI_001/DJI_20261109082317_0002_D.LRF', 1)
+    ssd.mkdir()
+    saved = sd.list_volumes
+    volumes = ([{'mount': str(card), 'name': 'CARD', 'uuid': 'u'}], [{'mount': str(ssd), 'name': 'SSD', 'free': 10**12, 'total': 10**12}])
+    sd.list_volumes = lambda roots: volumes
+    finder = lambda m, d, roots: None
+    def run(**options):
+        plan = sd.build_plan([ssd], finder, keep_lrf=options.get('keep_lrf', False))
+        sd.start(plan['plan_id'], **options)
+        while sd.job['running']: time.sleep(0.05)
+        return plan
+    try:
+        plan = run(keep_lrf=True, keep_card=True)
+        check(plan['size'] == sum(p.stat().st_size for p in (video, lrf, video2, lrf2)), '空间按视频 + LRF 计算')
+        folder = ssd / '11.09_ORG'
+        main, side = folder / '20261109_075919_ORG_001.mp4', folder / '20261109_075919_ORG_001.LRF'
+        check(main.read_bytes() == video.read_bytes() and side.read_bytes() == lrf.read_bytes(), 'LRF 与视频同名放在一起，内容一致')
+        check(all(p.exists() for p in (video, lrf, video2, lrf2)), '只复制时卡上文件全部保留')
+        check(ft.kind(side.name) == 'proxy', 'LRF 不影响文件夹后缀判断')
+        folder.rename(ssd / '11.09')
+        again = sd.build_plan([ssd], finder)
+        check({i['status'] for i in again['items']} == {'copied'}, '文件夹加了后缀，仍认得已复制（不会重复拷）')
+        run()
+        check(not video.exists() and not lrf.exists() and not video2.exists(), '之后普通导入：核对一致才清卡')
+        check(len(list((ssd / '11.09').glob('*.mp4'))) == 2 and (ssd / '11.09' / side.name).is_file(), '没有多出重复文件，LRF 还在')
+    finally:
+        sd.list_volumes = saved
+
+
 def test_space(base):
     print('空间预估')
     import space
@@ -336,5 +379,6 @@ if __name__ == '__main__':
         test_space(base)
         test_folder_tags(base)
         test_retime(base)
+        test_sd_keep_lrf(base)
     print('\n全部通过' if not check.failed else f'\n{check.failed} 项失败')
     sys.exit(1 if check.failed else 0)

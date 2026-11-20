@@ -83,3 +83,7 @@ OpenOSV 使用 Apache-2.0 许可，许可见 `vendor/OpenOSV-LICENSE`，其运�
 不想装 Python 的 Windows 电脑：用免安装包（`tools/build-windows.py` 生成），解压后双击 `启动轻存.cmd`，不需要管理员权限。
 
 给接手的 Agent：先读 `AGENTS.md`。
+
+### ORG / CMP 分开保存
+
+同一天的原片和 LRF 保存在 `11.13_ORG`，压缩版保存在 `11.13_CMP`。压缩选择原片旁保存时也使用独立 CMP 文件夹；已有混放素材会在空闲时自动整理，支持手动整理和撤销。未知文件和重名文件保留原位，不覆盖。
