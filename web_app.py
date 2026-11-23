@@ -25,12 +25,13 @@ import space
 import updater
 import folder_tags
 import retime
+import video_repair
 import time
 import processing_time
 import pipeline_runtime as pipeline
 
 TOKEN = secrets.token_urlsafe(32)
-BUILD = 'storage-split-1'
+BUILD = 'video-repair-1'
 state = {'busy': False, 'logs': [], 'files': []}
 lock = threading.Lock()
 worker = types.SimpleNamespace(events=queue.Queue(), cancel=threading.Event(), manifests=[], progress={}, progress_lock=threading.Lock())
@@ -626,7 +627,7 @@ TAG_LOCK = threading.Lock()
 def working():
     with task_condition:
         busy = state['busy'] or bool(active_owners)
-    return busy or sd.job['running'] or library.job['running']
+    return busy or sd.job['running'] or library.job['running'] or video_repair.state()['running']
 
 def locked_paths():
     """Folders 轻存 still has to find under their current name: unfinished tasks and files waiting to move back."""
@@ -966,7 +967,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}': self.send_error(403); return
         if self.path == '/health':
-            self.reply({'build': BUILD, 'busy': state['busy'] or sd.job['running'] or library.job['running'],
+            self.reply({'build': BUILD, 'busy': state['busy'] or sd.job['running'] or library.job['running'] or video_repair.state()['running'],
                         'openosv_installed': osv.tool().is_file(), 'can_quit': SERVER['quit_button']}); return
         if self.path == '/library':
             html=(c.BASE/'素材日历.html').read_text(encoding='utf8').replace('__TOKEN__',TOKEN).replace('/*__MODE__*/',"const MODE='live';").encode()
@@ -996,6 +997,29 @@ class Handler(BaseHTTPRequestHandler):
                     target.unlink(missing_ok=True); raise
             if length>1000000: raise ValueError('请求过大')
             data=json.loads(self.rfile.read(length) or '{}')
+            if self.path == '/repair':
+                action = data.get('action', 'state')
+                if action == 'state': self.reply(video_repair.state()); return
+                if action == 'cancel': video_repair.cancel(); self.reply(video_repair.state()); return
+                if action == 'inspect':
+                    sources = data.get('sources') or []
+                    if not isinstance(sources, list) or not 1 <= len(sources) <= 100:
+                        raise ValueError('请选择 1–100 个视频')
+                    self.reply({'items': [video_repair.inspect(p) for p in sources]}); return
+                if action == 'start':
+                    with TAG_LOCK:
+                        if working(): raise ValueError('正在处理其他任务，请结束后再修复')
+                        selected = {str(Path(p).resolve()) for p in data.get('sources', [])}
+                        if selected & {str(Path(p).resolve()) for p in locked_paths()}:
+                            raise ValueError('队列还要使用这些文件，请先移出队列')
+                        self.reply(video_repair.start(data.get('sources'), data.get('output')))
+                    return
+                raise ValueError('未知修复操作')
+            if video_repair.state()['running'] and self.path in (
+                '/start', '/queue/continue', '/retry-task', '/sd/start', '/sd/remove-corrupt',
+                '/sd/eject', '/retime', '/update', '/quit', '/upload', '/quick-delete', '/delete', '/folder-tags', '/library/mark',
+                '/library/undo', '/library/scan', '/library/delete'):
+                raise ValueError('视频修复正在运行，请等待完成或先停止修复')
             if self.path == '/state':
                 while not worker.events.empty() and not DRAINER['on']: state['logs'].append(worker.events.get())
                 self.reply({'busy':state['busy'],'logs':state['logs'],'quick_delete_count':len(worker.manifests),
@@ -1058,8 +1082,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply({'path': str(applog.LOG_DIR)}); return
             if self.path == '/update':
                 with task_condition:
-                    working = state['busy'] or bool(active_owners)
-                if working or sd.job['running'] or library.job['running']:
+                    queue_working = state['busy'] or bool(active_owners)
+                if queue_working or sd.job['running'] or library.job['running']:
                     raise ValueError('正在处理视频或导入，请等处理完再更新（更新会重启轻存）')
                 result = updater.run()
                 if result['changed']:

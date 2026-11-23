@@ -127,7 +127,7 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
 </style>
 <header class="top"><div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="currentColor"/><path d="M7 15.5 12 8l5 7.5" stroke="var(--panel)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 17.5h7" stroke="var(--panel)" stroke-width="2" stroke-linecap="round"/></svg>轻存</div>
 <nav class="nav"><a class="on" href="/">视频压缩</a><a href="/library">素材日历与整理</a></nav><span class="spacer"></span>
-<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><span class="menu-wrap"><button id="toolsBtn" class="ghost" data-i="dots" aria-haspopup="true" aria-expanded="false">工具</button><div class="menu" id="toolsMenu" hidden><button id="openRetime" data-i="clock">时间校准…</button><div class="tiny">相机时间或时区设错时用</div></div></span><button id="updateApp" class="ghost" data-i="sync" title="从 GitHub 取最新版，更新后自动重启（有任务在处理时不能更新）">拉取更新</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
+<div class="acts"><button id="sdOpen" data-i="card">SD 卡导入<span id="sdBadge"></span></button><button id="openLogs" class="ghost" data-i="doc" title="压缩、SD 导入、设备检测的日志每天自动保存一份">日志文件夹</button><span class="menu-wrap"><button id="toolsBtn" class="ghost" data-i="dots" aria-haspopup="true" aria-expanded="false">工具</button><div class="menu" id="toolsMenu" hidden><button id="openRepair" data-i="film">视频修复…</button><button id="openRetime" data-i="clock">时间校准…</button><div class="tiny">修复异常视频或校准相机时间</div></div></span><button id="updateApp" class="ghost" data-i="sync" title="从 GitHub 取最新版，更新后自动重启（有任务在处理时不能更新）">拉取更新</button><button id="quitApp" class="ghost danger" data-i="power" hidden>退出</button></div></header>
 
 <section class="strip" id="spaceStrip" aria-label="硬盘空间" aria-busy="true"><div class="skeleton" style="flex:1 1 280px;max-width:480px"></div><div class="skeleton" style="flex:0 0 230px"></div></section>
 
@@ -226,6 +226,16 @@ details.plain>summary{cursor:pointer;color:var(--sub);font-size:12px;margin-top:
  <div id="rtList" class="rt-list" hidden></div>
  <div class="bottom"><button class="primary" id="rtGo" disabled>应用校准</button><button id="rtUndo" hidden>撤销上一次</button></div>
  <div id="rtLast" class="tiny" style="margin-top:6px"></div>
+</div></div>
+<div id="repairModal" class="modal" hidden><div class="modal-box"><button class="modal-close" id="repairClose" data-i="x" aria-label="关闭"></button>
+ <div class="title"><h2>视频修复</h2></div>
+ <p class="muted">检查 MP4 / MOV 的索引，尝试纠正文件头，再完整检查画面和声音。结果单独保存，原片始终保留。有解码错误的副本会标记 PARTIAL，不能当作完整备份。</p>
+ <label class="caption">需要修复的视频（每行一个路径）</label>
+ <textarea id="repairSources" rows="4" style="width:100%;box-sizing:border-box" placeholder="可一次选择多个视频"></textarea><button id="repairPick">选择视频</button>
+ <label class="caption">独立的结果文件夹</label><div style="display:flex;gap:6px"><input id="repairOutput" type="text" placeholder="例如 Data/QingSave-修复结果"><button id="repairPickOutput">浏览</button></div>
+ <div class="bottom"><button id="repairInspect">检查可修复性</button><button id="repairGo" class="primary">尝试修复并校验</button><button id="repairStop" hidden>停止修复</button></div>
+ <p id="repairProgress" class="muted" aria-live="polite"></p><div id="repairResults" class="rt-list" hidden></div>
+ <p class="tiny">仅恢复索引不保证拍摄内容完整。没有媒体数据的文件无法恢复；真正丢失索引的文件可保留原片，另用同相机参考片尝试 untrunc。检查日志和修复记录与结果放在一起。</p>
 </div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
@@ -426,6 +436,21 @@ document.addEventListener('drop',async e=>{e.preventDefault();dragDepth=0;$('emp
 $('link').onclick=async()=>{try{let result=await api('/pick',{kind:'folder'});if(!result.value)return;let note=toast('正在核对原片内容…',{sticky:true});try{let old=[...files],linked=(await api('/link',{files,folder:result.value})).files,next={};linked.forEach((p,i)=>next[p]=fileOptions[old[i]]||currentQuality());files=linked;fileOptions=next;selRows.forEach(r=>r.remove());selRows.clear();await preview();toast('已关联原片')}finally{note.close()}}catch(e){error(e)}};
 
 /* keyboard: ⌘/Ctrl+O add videos, ⌘/Ctrl+Enter start, Esc closes the SD window */
+/* ---- 视频修复：副本输出，完整检查 ---- */
+let repairTimer=null;
+function repairSources(){return $('repairSources').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}
+function repairShow(items){let el=$('repairResults');el.hidden=!items.length;el.replaceChildren();for(let item of items){let row=document.createElement('div');row.style.padding='8px 0';row.style.overflowWrap='anywhere';let name=document.createElement('b');name.textContent=item.source.split(/[\\/]/).pop();row.append(name);let msg=document.createElement('div');msg.textContent=item.message||item.status;row.append(msg);if(item.output){let out=document.createElement('div');out.className='tiny';out.textContent=item.output;row.append(out)}el.append(row)}}
+async function repairPoll(){clearTimeout(repairTimer);try{let s=await api('/repair',{action:'state'});$('repairGo').disabled=$('repairInspect').disabled=s.running;$('repairStop').hidden=!s.running;let seconds=(+s.progress?.out_time_us||0)/1e6;$('repairProgress').textContent=[s.current?.split(/[\\/]/).pop(),s.phase,seconds?'已检查 '+Math.floor(seconds)+' 秒':'',s.error].filter(Boolean).join(' · ');if(s.results?.length)repairShow(s.results);if(s.running&&!$('repairModal').hidden)repairTimer=setTimeout(repairPoll,1200)}catch(e){$('repairProgress').textContent=e.message}}
+$('openRepair').onclick=()=>{$('toolsMenu').hidden=true;$('repairModal').hidden=false;repairPoll()};
+$('repairClose').onclick=()=>{$('repairModal').hidden=true;clearTimeout(repairTimer)};
+$('repairModal').onclick=e=>{if(e.target===$('repairModal'))$('repairClose').click()};
+$('repairPick').onclick=()=>withBusy($('repairPick'),async()=>{try{let r=await api('/pick',{kind:'files'});if(r.value?.length)$('repairSources').value=r.value.join('\n')}catch(e){toast(e.message,{bad:true})}});
+$('repairPickOutput').onclick=()=>withBusy($('repairPickOutput'),async()=>{try{let r=await api('/pick',{kind:'folder'});if(r.value)$('repairOutput').value=r.value}catch(e){toast(e.message,{bad:true})}});
+$('repairInspect').onclick=()=>withBusy($('repairInspect'),async()=>{try{let r=await api('/repair',{action:'inspect',sources:repairSources()});repairShow(r.items)}catch(e){toast(e.message,{bad:true})}});
+$('repairGo').onclick=()=>withBusy($('repairGo'),async()=>{try{await api('/repair',{action:'start',sources:repairSources(),output:$('repairOutput').value.trim()});repairShow([]);repairPoll()}catch(e){toast(e.message,{bad:true})}});
+$('repairStop').onclick=async()=>{try{await api('/repair',{action:'cancel'});repairPoll()}catch(e){toast(e.message,{bad:true})}};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('repairModal').hidden){e.stopImmediatePropagation();$('repairClose').click()}},true);
+
 /* ---- 工具菜单 / 时间校准 ---- */
 $('toolsBtn').onclick=e=>{e.stopPropagation();let m=$('toolsMenu');m.hidden=!m.hidden;$('toolsBtn').setAttribute('aria-expanded',String(!m.hidden))};
 document.addEventListener('click',e=>{if(!$('toolsMenu').hidden&&!e.target.closest('.menu-wrap'))$('toolsMenu').hidden=true});
