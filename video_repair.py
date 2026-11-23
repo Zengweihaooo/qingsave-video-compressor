@@ -240,6 +240,7 @@ def start(sources, output_dir):
     with _guard:
         if job['running']: raise ValueError('已有修复任务正在运行')
         _cancel.clear()
+        job.clear()
         job.update(running=True, phase='准备', current='', results=[], error='', progress={})
     try: applog.save_json('repair-last.json', state())
     except Exception:

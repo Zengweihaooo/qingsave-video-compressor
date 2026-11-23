@@ -126,6 +126,8 @@ def name_time(stem):
 
 
 def classify_tag(stem):
+    if re.search(r'(?:^|_)RECOVERED(?:_|$)', stem, re.I):
+        return 'recovery'
     if LRF_RE.search(stem):
         return 'proxy'
     if CMP_RE.search(stem):
@@ -338,7 +340,12 @@ def scan(root, cancel=None, workers=4):
             flags.append('日期只能按文件修改时间推断')
         tag = classify_tag(stem)
         in_manifest = outputs.get(path.name.lower())
-        if tag == 'proxy':
+        if tag == 'recovery' or (in_manifest and re.search(r'(?:^|_)RECOVERED(?:_|$)', in_manifest.get('source', ''), re.I)):
+            kind = 'recovery'
+            flags.append('修复副本，不作为原片完整覆盖的依据；请对照修复记录')
+            if re.search(r'(?:^|_)PARTIAL(?:_|$)', stem, re.I):
+                flags.append('仅部分恢复，仍有解码错误，不能据此删除原片')
+        elif tag == 'proxy':
             kind = 'proxy'
         elif tag == 'compressed' or in_manifest:
             kind = 'compressed'

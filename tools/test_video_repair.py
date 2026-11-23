@@ -1,6 +1,7 @@
 """Repair regression with real generated media, entirely in a temporary directory."""
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import struct
 import subprocess
@@ -79,6 +80,16 @@ class RepairTests(unittest.TestCase):
             self.assertEqual(corrupt_result['status'], 'partial', corrupt_result)
             self.assertIn('_PARTIAL', corrupt_result['output'])
             self.assertFalse(corrupt_result['original_deleted'])
+            import library as library
+            encoded = root / '20261021_201840_CMP_006.mp4'
+            shutil.copyfile(second['output'], encoded)
+            Path(str(encoded) + '.dji.json').write_text(json.dumps({
+                'source': corrupt_result['output'], 'output': str(encoded), 'verified': True}))
+            snapshot = library.scan(root)
+            indexed = {f['name']: f for f in snapshot['files']}
+            self.assertEqual(indexed[Path(corrupt_result['output']).name]['kind'], 'recovery')
+            self.assertEqual(indexed[encoded.name]['kind'], 'recovery')
+            self.assertFalse(snapshot['issues']['pairs'])
             source.write_bytes(before)
             midway = threading.Event()
             def stop_after_copy(phase, *args):
@@ -100,6 +111,7 @@ class RepairTests(unittest.TestCase):
             r.applog.LOG_DIR = Path(tmp) / 'logs'
             try:
                 import web_app as w
+                self.assertEqual(w.library.classify_tag('20261021_201840_ORG_006_RECOVERED_abcd_PARTIAL'), 'recovery')
                 server = w.ThreadingHTTPServer(('127.0.0.1', 0), w.Handler)
                 t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
                 def request(path, auth=True):

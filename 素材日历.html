@@ -84,7 +84,7 @@ td.name{max-width:420px;overflow-wrap:anywhere}
 /*__MODE__*/
 const token='__TOKEN__';const $=id=>document.getElementById(id);
 let D=null,year=null,selected=null,conflictIds=new Set();
-const KIND={original:'原片',compressed:'压缩版',unknown:'无法判断',proxy:'LRF 低清'};
+const KIND={original:'原片',compressed:'压缩版',unknown:'无法判断',proxy:'LRF 低清',recovery:'修复副本'};
 async function requestApi(path,data={}){let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-App-Token':token},body:JSON.stringify(data)});let v=await r.json();if(!r.ok)throw Error(v.error||'操作失败');return v}
 let pickerPending=false;
 async function api(path,data={}){
@@ -103,7 +103,7 @@ async function api(path,data={}){
 function size(n){return n>=1e12?(n/1e12).toFixed(2)+' TB':n>=1e9?(n/1e9).toFixed(1)+' GB':(n/1e6).toFixed(0)+' MB'}
 function dur(s){s=Math.round(s||0);let h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`}
 function el(tag,attrs={},...kids){let e=document.createElement(tag);for(let[k,v]of Object.entries(attrs)){if(k==='class')e.className=v;else if(k.startsWith('on'))e[k]=v;else e.setAttribute(k,v)}for(let k of kids)if(k!=null)e.append(k);return e}
-function kindOf(f){return f.readable?f.kind:'bad'}
+function kindOf(f){return f.readable?(f.kind==='recovery'?'unknown':f.kind):'bad'}
 function badge(f){return el('span',{class:'badge b-'+kindOf(f)},f.readable?KIND[f.kind]:'读不出')}
 function fileLink(f){let label=f.name;if(MODE==='static')return el('a',{href:f.rel.split('/').map(encodeURIComponent).join('/'),target:'_blank'},label);return el('a',{href:'#',onclick:e=>{e.preventDefault();api('/library/open',{rel:f.rel}).catch(showErr)}},label)}
 function showErr(e){$('msg').textContent=e.message||e}
